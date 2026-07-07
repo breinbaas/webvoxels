@@ -109,6 +109,7 @@ const btnGenerate2d = document.getElementById('btn-generate-2d') as HTMLButtonEl
 const btnDownloadBro = document.getElementById('btn-download-bro') as HTMLButtonElement;
 const btnSaveProject = document.getElementById('btn-save-project') as HTMLButtonElement;
 const btnLoadProject = document.getElementById('btn-load-project') as HTMLButtonElement;
+const btnNewProject = document.getElementById('btn-new-project') as HTMLButtonElement;
 const fileInputProject = document.getElementById('file-input-project') as HTMLInputElement;
 
 // Grab split viewer and loading elements
@@ -2142,6 +2143,62 @@ fileInputProject.addEventListener('change', async (e: Event) => {
     if (loaderText) {
       loaderText.textContent = 'Generating 3D Voxel Model...';
     }
+  }
+});
+
+// New Project
+btnNewProject.addEventListener('click', () => {
+  if (confirm('Are you sure you want to start a new project? This will clear all current CPTs and drawings.')) {
+    // 1. Reset state & clear drawings
+    clearDrawing();
+    
+    // 2. Remove CPT markers from map
+    cptMarkerList.forEach(({ marker }) => {
+      map.removeLayer(marker);
+    });
+    cptMarkerList.length = 0;
+    
+    // 3. Clear storage arrays/sets
+    uploadedCpts.length = 0;
+    uploadedFilenames.clear();
+
+    // 4. Reset max distance settings input
+    if (settingMaxDistance) {
+      settingMaxDistance.value = '20';
+    }
+
+    // 5. Reset upload badges
+    if (uploadCptsBadge) {
+      uploadCptsBadge.textContent = 'Upload';
+      uploadCptsBadge.classList.remove('uploading-badge-active');
+    }
+    if (uploadShpBadge) {
+      uploadShpBadge.textContent = 'Upload';
+      uploadShpBadge.classList.remove('uploading-badge-active');
+    }
+
+    // 6. Reset Split View and close panels
+    appContainer.classList.remove('split-active');
+    resetSplitHeights();
+    viewerLayersPanel.classList.remove('active');
+    viewerLayersList.innerHTML = '';
+    
+    if (voxelModelViewer.src) {
+      URL.revokeObjectURL(voxelModelViewer.src);
+      voxelModelViewer.removeAttribute('src');
+    }
+
+    profile2dView.style.display = 'none';
+    voxelModelViewer.style.display = 'block';
+    btnResetView.style.display = 'block';
+    btnDownloadGlb.style.display = 'block';
+
+    // 7. Reset map view to the default view (Netherlands)
+    map.setView([52.1326, 5.2913], 8);
+
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 500);
   }
 });
 
