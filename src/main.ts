@@ -106,6 +106,7 @@ const drawingInstructions = document.getElementById('drawing-instructions') as H
 const generateContainer = document.getElementById('generate-container') as HTMLDivElement;
 const btnGenerateVoxel = document.getElementById('btn-generate-voxel') as HTMLButtonElement;
 const btnGenerate2d = document.getElementById('btn-generate-2d') as HTMLButtonElement;
+const btnDownloadBro = document.getElementById('btn-download-bro') as HTMLButtonElement;
 
 // Grab split viewer and loading elements
 const appContainer = document.getElementById('app-container') as HTMLDivElement;
@@ -119,6 +120,7 @@ const btnResetView = document.getElementById('btn-reset-view') as HTMLButtonElem
 const viewerLayersPanel = document.getElementById('viewer-layers-panel') as HTMLDivElement;
 const viewerLayersList = document.getElementById('viewer-layers-list') as HTMLDivElement;
 const loadingOverlay = document.getElementById('loading-overlay') as HTMLDivElement;
+const loaderText = document.getElementById('loader-text') as HTMLDivElement;
 
 // 2D Profile elements
 const profile2dView = document.getElementById('profile-2d-view') as HTMLDivElement;
@@ -456,6 +458,7 @@ fileInputShp.addEventListener('change', async () => {
       btnClearDraw.disabled = false;
       generateContainer.classList.add('active');
       btnGenerate2d.style.display = 'flex';
+      btnDownloadBro.style.display = 'flex';
 
       const bounds = L.latLngBounds(polylinePoints);
       map.fitBounds(bounds);
@@ -689,6 +692,7 @@ function clearDrawing() {
   btnClearDraw.disabled = true;
   generateContainer.classList.remove('active');
   btnGenerate2d.style.display = 'none';
+  btnDownloadBro.style.display = 'none';
 
   // Reset all marker styles
   updateCptMarkerStyles();
@@ -1386,6 +1390,127 @@ btnDownloadProfile.addEventListener('click', () => {
     });
 });
 
+// Download BRO CPT data along polyline
+btnDownloadBro.addEventListener('click', async () => {
+  if (polylinePoints.length < 2) {
+    alert('Please draw a line with at least 2 points on the map first.');
+    return;
+  }
+
+  // Show loading indicator
+  if (loaderText) {
+    loaderText.textContent = 'Downloading BRO data...';
+  }
+  loadingOverlay.classList.add('active');
+
+  try {
+    // 1. Convert polyline coordinates to EPSG:28992 (RD)
+    const rdPoints = polylinePoints.map(pt => {
+      const rd = wgs84ToRd(pt.lat, pt.lng);
+      return [rd.x, rd.y];
+    });
+
+    // Read the max distance from settings to use as offset (fallback to 10)
+    let maxDistance = 10;
+    if (settingMaxDistance) {
+      const val = parseInt(settingMaxDistance.value, 10);
+      if (!isNaN(val)) {
+        maxDistance = val;
+      }
+    }
+
+    // 2. Fetch CPT metadata along the polyline from BRO
+    const metadataResponse = await fetch(`${API_URL}/api/slim/bro/cpt_metadata/by_polyline`, {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'X-API-Key': API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        points: rdPoints,
+        offset: maxDistance
+      })
+    });
+
+    if (!metadataResponse.ok) {
+      const errText = await metadataResponse.text();
+      throw new Error(`Failed to fetch BRO CPT metadata: ${metadataResponse.status}. ${errText}`);
+    }
+
+    const metadataData = await metadataResponse.json();
+    const characteristics = metadataData.cpt_characteristics || [];
+
+    if (characteristics.length === 0) {
+      alert('No BRO CPTs found near the active polyline.');
+      return;
+    }
+
+    console.log(`Found ${characteristics.length} CPTs from BRO:`, characteristics);
+
+    // 3. For each BRO ID, retrieve CPT interpretation
+    let successCount = 0;
+    let skipCount = 0;
+
+    for (const item of characteristics) {
+      const broId = item.bro_id;
+      const fileName = `${broId}.xml`;
+
+      // Avoid duplicates or already uploaded files using the BRO ID
+      const isAlreadyUploaded = uploadedCpts.some(cpt => {
+        const nameMatch = cpt.cpt_name.toLowerCase() === broId.toLowerCase();
+        const fn = ((cpt as any).filename || '').toLowerCase();
+        const fileMatch = fn.includes(broId.toLowerCase());
+        return nameMatch || fileMatch;
+      });
+
+      if (isAlreadyUploaded) {
+        console.log(`Skipping CPT ${broId} because it is already uploaded.`);
+        skipCount++;
+        continue;
+      }
+
+      const interpResponse = await fetch(`${API_URL}/api/slim/bro/cpt_interpretation`, {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          bro_id: broId,
+          method: 2,
+          minimum_layerheight: 0.5,
+          peat_friction_ratio: 6
+        })
+      });
+
+      if (!interpResponse.ok) {
+        console.warn(`Failed to fetch interpretation for ${broId}: ${interpResponse.status}`);
+        continue;
+      }
+
+      const data: CptData = await interpResponse.json();
+      (data as any).filename = fileName;
+      uploadedCpts.push(data);
+      uploadedFilenames.add(fileName);
+      addCptMarker(data);
+      successCount++;
+    }
+
+    alert(`Successfully imported ${successCount} BRO CPTs.${skipCount > 0 ? ` (Skipped ${skipCount} duplicates)` : ''}`);
+    
+  } catch (error: any) {
+    console.error('Error downloading BRO data:', error);
+    alert(`Failed to download BRO data: ${error.message}`);
+  } finally {
+    loadingOverlay.classList.remove('active');
+    if (loaderText) {
+      loaderText.textContent = 'Generating 3D Voxel Model...';
+    }
+  }
+});
+
 // Download GLB model
 btnDownloadGlb.addEventListener('click', () => {
   const modelUrl = voxelModelViewer.src;
@@ -1574,6 +1699,7 @@ function finishRectangleDrawing() {
       btnClearDraw.disabled = true;
       generateContainer.classList.remove('active');
       btnGenerate2d.style.display = 'none';
+      btnDownloadBro.style.display = 'none';
       updateCptMarkerStyles();
     } else {
       updateCptMarkerStyles();
@@ -1582,9 +1708,11 @@ function finishRectangleDrawing() {
       if (selectedCptsCount > 0) {
         generateContainer.classList.add('active');
         btnGenerate2d.style.display = 'none';
+        btnDownloadBro.style.display = 'none';
       } else {
         generateContainer.classList.remove('active');
         btnGenerate2d.style.display = 'none';
+        btnDownloadBro.style.display = 'none';
       }
     }
   }
@@ -1637,9 +1765,11 @@ map.on('click', (e: L.LeafletMouseEvent) => {
   if (polylinePoints.length >= 2) {
     generateContainer.classList.add('active');
     btnGenerate2d.style.display = 'flex';
+    btnDownloadBro.style.display = 'flex';
   } else {
     generateContainer.classList.remove('active');
     btnGenerate2d.style.display = 'none';
+    btnDownloadBro.style.display = 'none';
   }
 
   // Refresh 2D Profile view if open
@@ -1677,9 +1807,11 @@ map.on('contextmenu', (e: L.LeafletMouseEvent) => {
     if (polylinePoints.length >= 2) {
       generateContainer.classList.add('active');
       btnGenerate2d.style.display = 'flex';
+      btnDownloadBro.style.display = 'flex';
     } else {
       generateContainer.classList.remove('active');
       btnGenerate2d.style.display = 'none';
+      btnDownloadBro.style.display = 'none';
     }
 
     // Refresh 2D Profile view if open
