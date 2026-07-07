@@ -464,6 +464,12 @@ html, body {
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
 }
 
+.toolbar-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 4px 0;
+}
+
 .toolbar-btn {
   width: 40px;
   height: 40px;

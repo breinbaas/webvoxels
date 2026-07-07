@@ -107,6 +107,9 @@ const generateContainer = document.getElementById('generate-container') as HTMLD
 const btnGenerateVoxel = document.getElementById('btn-generate-voxel') as HTMLButtonElement;
 const btnGenerate2d = document.getElementById('btn-generate-2d') as HTMLButtonElement;
 const btnDownloadBro = document.getElementById('btn-download-bro') as HTMLButtonElement;
+const btnSaveProject = document.getElementById('btn-save-project') as HTMLButtonElement;
+const btnLoadProject = document.getElementById('btn-load-project') as HTMLButtonElement;
+const fileInputProject = document.getElementById('file-input-project') as HTMLInputElement;
 
 // Grab split viewer and loading elements
 const appContainer = document.getElementById('app-container') as HTMLDivElement;
@@ -1949,6 +1952,196 @@ window.addEventListener('mouseup', () => {
     isResizing = false;
     appContainer.classList.remove('resizing');
     map.invalidateSize();
+  }
+});
+
+// Save Project
+btnSaveProject.addEventListener('click', () => {
+  try {
+    let drawing: any = undefined;
+    if (activeDrawingLayer) {
+      if (activeDrawingLayer instanceof L.Rectangle) {
+        const bounds = activeDrawingLayer.getBounds();
+        drawing = {
+          type: 'rectangle',
+          bounds: {
+            southWest: { lat: bounds.getSouthWest().lat, lng: bounds.getSouthWest().lng },
+            northEast: { lat: bounds.getNorthEast().lat, lng: bounds.getNorthEast().lng }
+          }
+        };
+      } else if (activeDrawingLayer instanceof L.Polyline) {
+        drawing = {
+          type: 'polyline',
+          points: polylinePoints.map(pt => ({ lat: pt.lat, lng: pt.lng }))
+        };
+      }
+    }
+
+    let maxDistance = 20;
+    if (settingMaxDistance) {
+      const val = parseInt(settingMaxDistance.value, 10);
+      if (!isNaN(val)) {
+        maxDistance = val;
+      }
+    }
+
+    const projectData = {
+      version: '1.0.0',
+      uploadedCpts,
+      uploadedFilenames: Array.from(uploadedFilenames),
+      settings: {
+        maxDistance
+      },
+      drawing
+    };
+
+    const jsonStr = JSON.stringify(projectData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `webvoxel-project-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (error: any) {
+    console.error('Error saving project:', error);
+    alert(`Failed to save project: ${error.message}`);
+  }
+});
+
+// Load Project
+btnLoadProject.addEventListener('click', () => {
+  fileInputProject.value = '';
+  fileInputProject.click();
+});
+
+fileInputProject.addEventListener('change', async (e: Event) => {
+  const target = e.target as HTMLInputElement;
+  if (!target.files || target.files.length === 0) return;
+
+  const file = target.files[0];
+  loadingOverlay.classList.add('active');
+  if (loaderText) {
+    loaderText.textContent = 'Loading project...';
+  }
+
+  try {
+    const text = await file.text();
+    const projectData = JSON.parse(text);
+
+    if (!projectData || !Array.isArray(projectData.uploadedCpts)) {
+      throw new Error('Invalid project file format. Missing uploadedCpts list.');
+    }
+
+    // 1. Reset state
+    clearDrawing();
+    
+    cptMarkerList.forEach(({ marker }) => {
+      map.removeLayer(marker);
+    });
+    cptMarkerList.length = 0;
+    
+    uploadedCpts.length = 0;
+    uploadedFilenames.clear();
+
+    // 2. Re-populate files and settings
+    if (projectData.settings && typeof projectData.settings.maxDistance === 'number') {
+      if (settingMaxDistance) {
+        settingMaxDistance.value = String(projectData.settings.maxDistance);
+      }
+    }
+
+    if (Array.isArray(projectData.uploadedFilenames)) {
+      projectData.uploadedFilenames.forEach((fn: string) => {
+        uploadedFilenames.add(fn);
+      });
+    }
+
+    // 3. Re-populate CPTs
+    projectData.uploadedCpts.forEach((cpt: CptData) => {
+      uploadedCpts.push(cpt);
+      addCptMarker(cpt);
+    });
+
+    // 4. Reconstruct drawings
+    if (projectData.drawing) {
+      const dw = projectData.drawing;
+      if (dw.type === 'polyline' && Array.isArray(dw.points)) {
+        polylinePoints = dw.points.map((p: { lat: number; lng: number }) => L.latLng(p.lat, p.lng));
+        
+        const line = L.polyline(polylinePoints, {
+          color: '#a855f7',
+          weight: 3
+        }).addTo(map);
+        activeDrawingLayer = line;
+
+        polylinePoints.forEach(latlng => {
+          const marker = L.circleMarker(latlng, {
+            radius: 5,
+            color: '#a855f7',
+            fillColor: '#fff',
+            fillOpacity: 1,
+            weight: 2
+          }).addTo(map);
+          polylineMarkers.push(marker);
+        });
+
+        btnClearDraw.disabled = false;
+        generateContainer.classList.add('active');
+        btnGenerate2d.style.display = 'flex';
+        btnDownloadBro.style.display = 'flex';
+
+        const bounds = L.latLngBounds(polylinePoints);
+        map.fitBounds(bounds);
+
+        if (profile2dView.style.display === 'flex') {
+          render2dProfile();
+        }
+      } else if (dw.type === 'rectangle' && dw.bounds) {
+        const sw = L.latLng(dw.bounds.southWest.lat, dw.bounds.southWest.lng);
+        const ne = L.latLng(dw.bounds.northEast.lat, dw.bounds.northEast.lng);
+        const bounds = L.latLngBounds(sw, ne);
+
+        const rect = L.rectangle(bounds, {
+          color: '#3b82f6',
+          weight: 2,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.15
+        }).addTo(map);
+        activeDrawingLayer = rect;
+
+        btnClearDraw.disabled = false;
+        
+        const selectedCptsCount = cptMarkerList.filter(({ marker }) => bounds.contains(marker.getLatLng())).length;
+        if (selectedCptsCount > 0) {
+          generateContainer.classList.add('active');
+        }
+        btnGenerate2d.style.display = 'none';
+        btnDownloadBro.style.display = 'none';
+
+        updateCptMarkerStyles();
+        map.fitBounds(bounds);
+      }
+    } else {
+      if (cptMarkerList.length > 0) {
+        const group = L.featureGroup(cptMarkerList.map(({ marker }) => marker));
+        map.fitBounds(group.getBounds());
+      }
+    }
+
+    alert('Project loaded successfully!');
+  } catch (error: any) {
+    console.error('Error loading project:', error);
+    alert(`Failed to load project: ${error.message}`);
+  } finally {
+    loadingOverlay.classList.remove('active');
+    if (loaderText) {
+      loaderText.textContent = 'Generating 3D Voxel Model...';
+    }
   }
 });
 
