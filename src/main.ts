@@ -108,6 +108,7 @@ const btnGenerateVoxel = document.getElementById('btn-generate-voxel') as HTMLBu
 const btnGenerate2d = document.getElementById('btn-generate-2d') as HTMLButtonElement;
 const btnDownloadBro = document.getElementById('btn-download-bro') as HTMLButtonElement;
 const btnSaveProject = document.getElementById('btn-save-project') as HTMLButtonElement;
+const btnSettings = document.getElementById('btn-settings') as HTMLButtonElement;
 const btnLoadProject = document.getElementById('btn-load-project') as HTMLButtonElement;
 const btnNewProject = document.getElementById('btn-new-project') as HTMLButtonElement;
 const fileInputProject = document.getElementById('file-input-project') as HTMLInputElement;
@@ -141,6 +142,10 @@ window.addEventListener('keydown', (e: KeyboardEvent) => {
     e.preventDefault();
     menuOverlay.classList.toggle('active');
   }
+});
+
+btnSettings.addEventListener('click', () => {
+  menuOverlay.classList.toggle('active');
 });
 
 // Close menu overlay when clicking outside the menu card
