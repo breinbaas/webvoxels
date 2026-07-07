@@ -119,7 +119,7 @@ const mapContainer = document.getElementById('map-container') as HTMLDivElement;
 const viewerContainer = document.getElementById('viewer-container') as HTMLDivElement;
 const splitDivider = document.getElementById('split-divider') as HTMLDivElement;
 const voxelModelViewer = document.getElementById('voxel-model-viewer') as any;
-const btnCloseViewer = document.getElementById('btn-close-viewer') as HTMLButtonElement;
+// const btnCloseViewer = document.getElementById('btn-close-viewer') as HTMLButtonElement;
 const btnDownloadGlb = document.getElementById('btn-download-glb') as HTMLButtonElement;
 const btnResetView = document.getElementById('btn-reset-view') as HTMLButtonElement;
 const viewerLayersPanel = document.getElementById('viewer-layers-panel') as HTMLDivElement;
@@ -133,6 +133,7 @@ const profileAxisY = document.getElementById('profile-axis-y') as HTMLDivElement
 const profilePlotArea = document.getElementById('profile-plot-area') as HTMLDivElement;
 const profileLegend = document.getElementById('profile-legend') as HTMLDivElement;
 const settingMaxDistance = document.getElementById('setting-max-distance') as HTMLInputElement;
+const settingMinLayerheight = document.getElementById('setting-min-layerheight') as HTMLInputElement;
 const btnDownloadProfile = document.getElementById('btn-download-profile') as HTMLButtonElement;
 const profileAxisXTicks = document.getElementById('profile-axis-x-ticks') as HTMLDivElement;
 
@@ -253,11 +254,19 @@ fileInputCpts.addEventListener('change', async () => {
       continue;
     }
 
+    let minLH = 0.5;
+    if (settingMinLayerheight) {
+      const val = parseFloat(settingMinLayerheight.value);
+      if (!isNaN(val)) {
+        minLH = val;
+      }
+    }
+
     let endpointSuffix = '';
     if (lowerName.endsWith('.gef')) {
-      endpointSuffix = '/api/slim/cpt_interpretation/from_gef?method=2&minimum_layerheight=0.5&peat_friction_ratio=6';
+      endpointSuffix = `/api/slim/cpt_interpretation/from_gef?method=2&minimum_layerheight=${minLH}&peat_friction_ratio=6`;
     } else if (lowerName.endsWith('.xml')) {
-      endpointSuffix = '/api/slim/cpt_interpretation/from_xml?method=2&minimum_layerheight=0.5&peat_friction_ratio=6';
+      endpointSuffix = `/api/slim/cpt_interpretation/from_xml?method=2&minimum_layerheight=${minLH}&peat_friction_ratio=6`;
     } else {
       alert(`Unsupported file format: ${fileName}. Please upload .gef or .xml files.`);
       continue;
@@ -1349,28 +1358,28 @@ function resetSplitHeights() {
   viewerContainer.style.height = '';
 }
 
-// Close viewer and clean up resources
-btnCloseViewer.addEventListener('click', () => {
-  appContainer.classList.remove('split-active');
-  resetSplitHeights();
-  viewerLayersPanel.classList.remove('active');
-  viewerLayersList.innerHTML = '';
+// // Close viewer and clean up resources
+// btnCloseViewer.addEventListener('click', () => {
+//   appContainer.classList.remove('split-active');
+//   resetSplitHeights();
+//   viewerLayersPanel.classList.remove('active');
+//   viewerLayersList.innerHTML = '';
   
-  if (voxelModelViewer.src) {
-    URL.revokeObjectURL(voxelModelViewer.src);
-    voxelModelViewer.removeAttribute('src');
-  }
+//   if (voxelModelViewer.src) {
+//     URL.revokeObjectURL(voxelModelViewer.src);
+//     voxelModelViewer.removeAttribute('src');
+//   }
 
-  // Close and reset 2D view state
-  profile2dView.style.display = 'none';
-  voxelModelViewer.style.display = 'block';
-  btnResetView.style.display = 'block';
-  btnDownloadGlb.style.display = 'block';
+//   // Close and reset 2D view state
+//   profile2dView.style.display = 'none';
+//   voxelModelViewer.style.display = 'block';
+//   btnResetView.style.display = 'block';
+//   btnDownloadGlb.style.display = 'block';
   
-  setTimeout(() => {
-    map.invalidateSize();
-  }, 500);
-});
+//   setTimeout(() => {
+//     map.invalidateSize();
+//   }, 500);
+// });
 
 // Download 2D CPT Profile as PNG
 btnDownloadProfile.addEventListener('click', () => {
@@ -1428,6 +1437,8 @@ btnDownloadBro.addEventListener('click', async () => {
       }
     }
 
+    console.log(rdPoints);
+
     // 2. Fetch CPT metadata along the polyline from BRO
     const metadataResponse = await fetch(`${API_URL}/api/slim/bro/cpt_metadata/by_polyline`, {
       method: 'POST',
@@ -1479,6 +1490,14 @@ btnDownloadBro.addEventListener('click', async () => {
         continue;
       }
 
+      let minLH = 0.5;
+      if (settingMinLayerheight) {
+        const val = parseFloat(settingMinLayerheight.value);
+        if (!isNaN(val)) {
+          minLH = val;
+        }
+      }
+
       const interpResponse = await fetch(`${API_URL}/api/slim/bro/cpt_interpretation`, {
         method: 'POST',
         headers: {
@@ -1489,7 +1508,7 @@ btnDownloadBro.addEventListener('click', async () => {
         body: JSON.stringify({
           bro_id: broId,
           method: 2,
-          minimum_layerheight: 0.5,
+          minimum_layerheight: minLH,
           peat_friction_ratio: 6
         })
       });
@@ -1920,6 +1939,17 @@ if (settingMaxDistance) {
   });
 }
 
+if (settingMinLayerheight) {
+  settingMinLayerheight.addEventListener('blur', () => {
+    let val = parseFloat(settingMinLayerheight.value);
+    if (isNaN(val)) {
+      val = 0.5;
+    }
+    const clamped = Math.min(2.0, Math.max(0.2, val));
+    settingMinLayerheight.value = clamped.toFixed(1);
+  });
+}
+
 // Resizable splitter dragging event listeners
 let isResizing = false;
 
@@ -1991,12 +2021,21 @@ btnSaveProject.addEventListener('click', () => {
       }
     }
 
+    let minLayerheight = 0.5;
+    if (settingMinLayerheight) {
+      const val = parseFloat(settingMinLayerheight.value);
+      if (!isNaN(val)) {
+        minLayerheight = val;
+      }
+    }
+
     const projectData = {
       version: '1.0.0',
       uploadedCpts,
       uploadedFilenames: Array.from(uploadedFilenames),
       settings: {
-        maxDistance
+        maxDistance,
+        minLayerheight
       },
       drawing
     };
@@ -2055,9 +2094,12 @@ fileInputProject.addEventListener('change', async (e: Event) => {
     uploadedFilenames.clear();
 
     // 2. Re-populate files and settings
-    if (projectData.settings && typeof projectData.settings.maxDistance === 'number') {
-      if (settingMaxDistance) {
+    if (projectData.settings) {
+      if (typeof projectData.settings.maxDistance === 'number' && settingMaxDistance) {
         settingMaxDistance.value = String(projectData.settings.maxDistance);
+      }
+      if (typeof projectData.settings.minLayerheight === 'number' && settingMinLayerheight) {
+        settingMinLayerheight.value = String(projectData.settings.minLayerheight);
       }
     }
 
