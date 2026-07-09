@@ -1273,6 +1273,47 @@ html, body {
   -webkit-appearance: none;
   margin: 0;
 }
+
+.setting-checkbox-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.setting-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 38px;
+  height: 20px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  position: relative;
+  outline: none;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.setting-checkbox:checked {
+  background: var(--accent-gradient);
+  border-color: transparent;
+}
+
+.setting-checkbox::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+.setting-checkbox:checked::before {
+  transform: translateX(18px);
+}
 .setting-input[type=number] {
   -moz-appearance: textfield;
 }

@@ -148,6 +148,7 @@ const profilePlotArea = document.getElementById('profile-plot-area') as HTMLDivE
 const profileLegend = document.getElementById('profile-legend') as HTMLDivElement;
 const settingMaxDistance = document.getElementById('setting-max-distance') as HTMLInputElement;
 const settingMinLayerheight = document.getElementById('setting-min-layerheight') as HTMLInputElement;
+const settingDownloadBoreholes = document.getElementById('setting-download-boreholes') as HTMLInputElement;
 const btnDownloadProfile = document.getElementById('btn-download-profile') as HTMLButtonElement;
 const profileAxisXTicks = document.getElementById('profile-axis-x-ticks') as HTMLDivElement;
 
@@ -1980,36 +1981,48 @@ btnDownloadBro.addEventListener('click', async () => {
     }
 
     let boreholeCharacteristics = [];
-    try {
-      const bhMetadataResponse = await fetch(`${API_URL}/api/slim/bro/borehole_metadata/by_polyline`, {
-        method: 'POST',
-        headers: {
-          'accept': 'application/json',
-          'X-API-Key': API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          points: rdPoints,
-          offset: maxDistance
-        })
-      });
-      if (bhMetadataResponse.ok) {
-        const bhMetadataData = await bhMetadataResponse.json();
-        boreholeCharacteristics = bhMetadataData.borehole_characteristics || [];
-      } else {
-        const errText = await bhMetadataResponse.text();
-        console.warn(`Failed to fetch BRO Borehole metadata: ${bhMetadataResponse.status}. ${errText}`);
+    const shouldDownloadBoreholes = settingDownloadBoreholes ? settingDownloadBoreholes.checked : false;
+
+    if (shouldDownloadBoreholes) {
+      try {
+        const bhMetadataResponse = await fetch(`${API_URL}/api/slim/bro/borehole_metadata/by_polyline`, {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'X-API-Key': API_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            points: rdPoints,
+            offset: maxDistance
+          })
+        });
+        if (bhMetadataResponse.ok) {
+          const bhMetadataData = await bhMetadataResponse.json();
+          boreholeCharacteristics = bhMetadataData.borehole_characteristics || [];
+        } else {
+          const errText = await bhMetadataResponse.text();
+          console.warn(`Failed to fetch BRO Borehole metadata: ${bhMetadataResponse.status}. ${errText}`);
+        }
+      } catch (e: any) {
+        console.warn('Error fetching BRO Borehole metadata:', e);
       }
-    } catch (e: any) {
-      console.warn('Error fetching BRO Borehole metadata:', e);
     }
 
     if (characteristics.length === 0 && boreholeCharacteristics.length === 0) {
-      alert('No BRO CPTs or Boreholes found near the active polyline.');
+      if (shouldDownloadBoreholes) {
+        alert('No BRO CPTs or Boreholes found near the active polyline.');
+      } else {
+        alert('No BRO CPTs found near the active polyline.');
+      }
       return;
     }
 
-    console.log(`Found ${characteristics.length} CPTs and ${boreholeCharacteristics.length} Boreholes from BRO.`);
+    if (shouldDownloadBoreholes) {
+      console.log(`Found ${characteristics.length} CPTs and ${boreholeCharacteristics.length} Boreholes from BRO.`);
+    } else {
+      console.log(`Found ${characteristics.length} CPTs from BRO.`);
+    }
 
     // 3. Retrieve CPT interpretations
     let successCptCount = 0;
