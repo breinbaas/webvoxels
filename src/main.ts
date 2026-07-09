@@ -97,6 +97,13 @@ const uploadCptsBadge = document.getElementById('upload-cpts-badge') as HTMLSpan
 const optionUploadJsonCpts = document.getElementById('option-upload-json-cpts') as HTMLLIElement;
 const fileInputJsonCpts = document.getElementById('file-input-json-cpts') as HTMLInputElement;
 const uploadJsonCptsBadge = document.getElementById('upload-json-cpts-badge') as HTMLSpanElement;
+const optionSoilMaintenance = document.getElementById('option-soil-maintenance') as HTMLLIElement;
+const soilMaintenanceOverlay = document.getElementById('soil-maintenance-overlay') as HTMLDivElement;
+const btnCloseSoilMaintenance = document.getElementById('btn-close-soil-maintenance') as HTMLButtonElement;
+const inputNewSoilName = document.getElementById('input-new-soil-name') as HTMLInputElement;
+const inputNewSoilColor = document.getElementById('input-new-soil-color') as HTMLInputElement;
+const btnAddSoilType = document.getElementById('btn-add-soil-type') as HTMLButtonElement;
+const soilsList = document.getElementById('soils-list') as HTMLDivElement;
 const optionUploadShp = document.getElementById('option-upload-shp') as HTMLLIElement;
 const fileInputShp = document.getElementById('file-input-shp') as HTMLInputElement;
 const uploadShpBadge = document.getElementById('upload-shp-badge') as HTMLSpanElement;
@@ -2334,6 +2341,228 @@ btnNewProject.addEventListener('click', () => {
     setTimeout(() => {
       map.invalidateSize();
     }, 500);
+  }
+});
+
+// ==========================================
+// Soil Maintenance Functionality
+// ==========================================
+
+// Get all soil names currently in use by any uploaded CPT
+function getUsedSoilNames(): Set<string> {
+  const used = new Set<string>();
+  uploadedCpts.forEach(cpt => {
+    if (cpt.soil_profile && Array.isArray(cpt.soil_profile.soil_layers)) {
+      cpt.soil_profile.soil_layers.forEach(layer => {
+        if (layer.soil_code) {
+          used.add(layer.soil_code);
+        }
+      });
+    }
+  });
+  return used;
+}
+
+// Rebuild CPT marker popup HTML when colors change
+function rebuildCptMarkerPopups() {
+  cptMarkerList.forEach(({ cpt, marker }) => {
+    const profile = cpt.soil_profile;
+    const { x, y } = profile;
+    const wgs = rdToWgs84(x, y);
+    const layers = profile.soil_layers || [];
+    const totalThickness = layers.reduce((acc, layer) => acc + (layer.top - layer.bottom), 0);
+
+    let segmentsHtml = '';
+    const legendItemsMap: Record<string, string> = {};
+
+    layers.forEach((layer) => {
+      const thickness = layer.top - layer.bottom;
+      const heightPercent = totalThickness > 0 ? (thickness / totalThickness) * 100 : 0;
+      const color = soilColors[layer.soil_code] || '#808080';
+      
+      legendItemsMap[layer.soil_code] = color;
+      const displayName = layer.soil_code.replace(/_/g, ' ');
+
+      segmentsHtml += `
+        <div 
+          class="soil-layer-segment" 
+          style="height: ${heightPercent}%; background-color: ${color};" 
+          title="${displayName}: ${layer.top.toFixed(2)}m to ${layer.bottom.toFixed(2)}m (${thickness.toFixed(2)}m)"
+        ></div>
+      `;
+    });
+
+    let legendHtml = '';
+    Object.entries(legendItemsMap).forEach(([code, color]) => {
+      const displayName = code.replace(/_/g, ' ');
+      legendHtml += `
+        <div class="legend-item">
+          <div class="legend-color-box" style="background-color: ${color};"></div>
+          <div class="legend-text" title="${displayName}">${displayName}</div>
+        </div>
+      `;
+    });
+
+    const popupHtml = `
+      <div class="cpt-popup">
+        <div class="cpt-popup-header">
+          <h4>CPT: ${cpt.cpt_name}</h4>
+          <button class="cpt-delete-btn" title="Remove CPT from project">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="cpt-coords">
+          <div><strong>RD:</strong> X: ${x.toFixed(1)}, Y: ${y.toFixed(1)}</div>
+          <div><strong>WGS84:</strong> Lat: ${wgs.lat.toFixed(5)}, Lng: ${wgs.lng.toFixed(5)}</div>
+        </div>
+        <div class="soil-profile-viz">
+          <div class="soil-bar-container">
+            ${segmentsHtml}
+          </div>
+          <div class="soil-legend">
+            ${legendHtml}
+          </div>
+        </div>
+      </div>
+    `;
+
+    marker.setPopupContent(popupHtml);
+
+    // If popup is currently open, bind the delete event listener to the fresh HTML immediately
+    if (marker.isPopupOpen()) {
+      const popupEl = marker.getPopup()?.getElement();
+      if (popupEl) {
+        const deleteBtn = popupEl.querySelector('.cpt-delete-btn');
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', () => {
+            if (confirm(`Are you sure you want to remove CPT ${cpt.cpt_name} from the project?`)) {
+              removeCpt(cpt, marker);
+            }
+          });
+        }
+      }
+    }
+  });
+}
+
+// Render dynamic soils list in modal
+function renderSoilsList() {
+  if (!soilsList) return;
+  soilsList.innerHTML = '';
+
+  const usedSoils = getUsedSoilNames();
+
+  Object.entries(soilColors).forEach(([key, color]) => {
+    const isUsed = usedSoils.has(key);
+    const displayName = key.replace(/_/g, ' ');
+
+    const item = document.createElement('div');
+    item.className = 'soil-item';
+
+    item.innerHTML = `
+      <div class="soil-item-info">
+        <input type="color" class="color-picker-input soil-color-picker" data-key="${key}" value="${color}" title="Change color for ${displayName}" />
+        <div class="soil-item-text">
+          <span class="soil-item-title">${displayName}</span>
+          <span class="soil-item-key">${key}</span>
+        </div>
+      </div>
+      <div class="soil-item-actions">
+        <button class="cpt-delete-btn btn-delete-soil" data-key="${key}" ${isUsed ? 'disabled title="Cannot delete: this soil is currently in use"' : 'title="Delete soil type"'}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px;">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+      </div>
+    `;
+
+    // Color picker update listener
+    const colorPicker = item.querySelector('.soil-color-picker') as HTMLInputElement;
+    colorPicker.addEventListener('input', (e) => {
+      const target = e.target as HTMLInputElement;
+      const keyVal = target.getAttribute('data-key') || '';
+      soilColors[keyVal] = target.value;
+
+      rebuildCptMarkerPopups();
+
+      if (profile2dView.style.display === 'flex') {
+        render2dProfile();
+      }
+    });
+
+    // Delete button listener
+    const deleteBtn = item.querySelector('.btn-delete-soil') as HTMLButtonElement;
+    if (!isUsed) {
+      deleteBtn.addEventListener('click', () => {
+        if (confirm(`Are you sure you want to delete the soil type "${displayName}"?`)) {
+          delete soilColors[key];
+          renderSoilsList();
+          rebuildCptMarkerPopups();
+          if (profile2dView.style.display === 'flex') {
+            render2dProfile();
+          }
+        }
+      });
+    }
+
+    soilsList.appendChild(item);
+  });
+}
+
+// Add new soil type event
+btnAddSoilType.addEventListener('click', () => {
+  const rawName = inputNewSoilName.value.trim();
+  if (!rawName) {
+    alert('Please enter a soil name.');
+    return;
+  }
+
+  // Format to lowercase, replace special chars and spaces with underscore
+  const key = rawName.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  if (!key) {
+    alert('Invalid soil name. Please use alphanumeric characters and spaces.');
+    return;
+  }
+
+  if (soilColors[key]) {
+    alert(`A soil type with code "${key}" already exists.`);
+    return;
+  }
+
+  const color = inputNewSoilColor.value;
+  soilColors[key] = color;
+
+  inputNewSoilName.value = '';
+  inputNewSoilColor.value = '#3b82f6';
+
+  renderSoilsList();
+  rebuildCptMarkerPopups();
+  if (profile2dView.style.display === 'flex') {
+    render2dProfile();
+  }
+});
+
+// Modal Open/Close listeners
+optionSoilMaintenance.addEventListener('click', () => {
+  renderSoilsList();
+  soilMaintenanceOverlay.classList.add('active');
+  menuOverlay.classList.remove('active');
+});
+
+btnCloseSoilMaintenance.addEventListener('click', () => {
+  soilMaintenanceOverlay.classList.remove('active');
+});
+
+soilMaintenanceOverlay.addEventListener('click', (e: MouseEvent) => {
+  if (e.target === soilMaintenanceOverlay) {
+    soilMaintenanceOverlay.classList.remove('active');
   }
 });
 
