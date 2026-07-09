@@ -39,6 +39,51 @@
                   </div>
                   <span class="option-badge" id="upload-cpts-badge">Upload</span>
                 </li>
+                <li class="menu-option" id="option-upload-json-cpts">
+                  <div class="option-info">
+                    <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" x2="12" y1="3" y2="15" />
+                    </svg>
+                    <div class="option-text">
+                      <span class="option-title">Upload Manual Soilprofiles</span>
+                      <span class="option-desc">Upload Manual Soilprofile JSON files (.json)</span>
+                    </div>
+                  </div>
+                  <span class="option-badge" id="upload-json-cpts-badge">Upload</span>
+                </li>
+                <li class="menu-option" id="option-upload-boreholes">
+                  <div class="option-info">
+                    <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" x2="12" y1="3" y2="15" />
+                    </svg>
+                    <div class="option-text">
+                      <span class="option-title">Upload Boreholes (*.gef)</span>
+                      <span class="option-desc">Upload Borehole data (.gef)</span>
+                    </div>
+                  </div>
+                  <span class="option-badge" id="upload-boreholes-badge">Upload</span>
+                </li>
+                <li class="menu-option" id="option-soil-maintenance">
+                  <div class="option-info">
+                    <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
+                      <path d="M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/>
+                      <line x1="12" y1="2" x2="12" y2="4"/>
+                      <line x1="12" y1="20" x2="12" y2="22"/>
+                      <line x1="2" y1="12" x2="4" y2="12"/>
+                      <line x1="20" y1="12" x2="22" y2="12"/>
+                    </svg>
+                    <div class="option-text">
+                      <span class="option-title">Soil Colors & Types</span>
+                      <span class="option-desc">Manage soil codes, colors, add or remove types</span>
+                    </div>
+                  </div>
+                  <span class="option-badge" id="btn-soil-maintenance">Manage</span>
+                </li>
               </ul>
             </div>
             
@@ -264,6 +309,12 @@
     <!-- Hidden file input for uploading CPTs -->
     <input type="file" id="file-input-cpts" accept=".gef,.xml" multiple style="display: none;" />
 
+    <!-- Hidden file input for uploading JSON CPTs -->
+    <input type="file" id="file-input-json-cpts" accept=".json" multiple style="display: none;" />
+
+    <!-- Hidden file input for uploading Boreholes -->
+    <input type="file" id="file-input-boreholes" accept=".gef" multiple style="display: none;" />
+
     <!-- Hidden file input for uploading Shapefile -->
     <input type="file" id="file-input-shp" accept=".shp,.dbf,.shx" multiple style="display: none;" />
 
@@ -275,6 +326,44 @@
       <div class="loader-content">
         <div class="spinner"></div>
         <div class="loader-text" id="loader-text">Generating 3D Voxel Model...</div>
+      </div>
+    </div>
+
+    <!-- Premium Glassmorphic Soil Maintenance Modal -->
+    <div id="soil-maintenance-overlay" class="menu-overlay">
+      <div class="menu-card soil-maintenance-card">
+        <div class="menu-header">
+          <h2>Soil Maintenance</h2>
+          <button id="btn-close-soil-maintenance" class="close-modal-btn" title="Close Modal">
+            <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <p class="menu-subtitle">Manage soil names and map colors. Active soils cannot be deleted.</p>
+
+        <!-- Add new soil type section -->
+        <div class="add-soil-section">
+          <h4>Add New Soil Type</h4>
+          <div class="add-soil-row">
+            <input type="text" id="input-new-soil-name" placeholder="e.g. gravel, silt..." class="setting-input" style="flex: 1; min-width: 0;" />
+            <input type="color" id="input-new-soil-color" value="#3b82f6" class="color-picker-input" />
+            <button id="btn-add-soil-type" class="toolbar-btn" title="Add Soil Type" style="width: 40px; height: 40px; border-radius: 8px;">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Scrollable list of soils -->
+        <div class="soils-list-container">
+          <div id="soils-list" class="soils-list">
+            <!-- Populated via Javascript -->
+          </div>
+        </div>
       </div>
     </div>
 
