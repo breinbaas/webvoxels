@@ -30,6 +30,7 @@ interface SoilProfile {
 
 interface CptData {
   cpt_name: string;
+  is_borehole?: boolean;
   soil_profile: SoilProfile;
 }
 
@@ -97,6 +98,9 @@ const uploadCptsBadge = document.getElementById('upload-cpts-badge') as HTMLSpan
 const optionUploadJsonCpts = document.getElementById('option-upload-json-cpts') as HTMLLIElement;
 const fileInputJsonCpts = document.getElementById('file-input-json-cpts') as HTMLInputElement;
 const uploadJsonCptsBadge = document.getElementById('upload-json-cpts-badge') as HTMLSpanElement;
+const optionUploadBoreholes = document.getElementById('option-upload-boreholes') as HTMLLIElement;
+const fileInputBoreholes = document.getElementById('file-input-boreholes') as HTMLInputElement;
+const uploadBoreholesBadge = document.getElementById('upload-boreholes-badge') as HTMLSpanElement;
 const optionSoilMaintenance = document.getElementById('option-soil-maintenance') as HTMLLIElement;
 const soilMaintenanceOverlay = document.getElementById('soil-maintenance-overlay') as HTMLDivElement;
 const btnCloseSoilMaintenance = document.getElementById('btn-close-soil-maintenance') as HTMLButtonElement;
@@ -236,6 +240,18 @@ async function fetchSoilColors() {
 // Fetch soil colors on initialization
 fetchSoilColors();
 
+// Helper to automatically register unrecognized soil codes from uploaded profiles as grey
+function registerUnrecognizedSoilCodes(cpt: CptData) {
+  if (cpt.soil_profile && Array.isArray(cpt.soil_profile.soil_layers)) {
+    cpt.soil_profile.soil_layers.forEach(layer => {
+      const code = layer.soil_code;
+      if (code && !soilColors[code]) {
+        soilColors[code] = '#808080';
+      }
+    });
+  }
+}
+
 // Click listener to trigger file input
 optionUploadCpts.addEventListener('click', () => {
   fileInputCpts.click();
@@ -303,6 +319,7 @@ fileInputCpts.addEventListener('change', async () => {
 
       const data: CptData = await response.json();
       (data as any).filename = fileName;
+      registerUnrecognizedSoilCodes(data);
       uploadedCpts.push(data);
       uploadedFilenames.add(fileName);
       addCptMarker(data);
@@ -384,6 +401,7 @@ fileInputJsonCpts.addEventListener('change', async () => {
       };
 
       (cptData as any).filename = fileName;
+      registerUnrecognizedSoilCodes(cptData);
       uploadedCpts.push(cptData);
       uploadedFilenames.add(fileName);
       addCptMarker(cptData);
@@ -396,6 +414,95 @@ fileInputJsonCpts.addEventListener('change', async () => {
   // Restore badge status
   uploadJsonCptsBadge.textContent = originalBadgeText;
   uploadJsonCptsBadge.classList.remove('uploading-badge-active');
+});
+
+// Click listener to trigger borehole file input
+optionUploadBoreholes.addEventListener('click', () => {
+  fileInputBoreholes.click();
+});
+
+// Borehole File Selection Handler
+fileInputBoreholes.addEventListener('change', async () => {
+  const files = fileInputBoreholes.files;
+  if (!files || files.length === 0) return;
+
+  const filesArray = Array.from(files);
+  fileInputBoreholes.value = '';
+
+  const originalBadgeText = uploadBoreholesBadge.textContent || 'Upload';
+  uploadBoreholesBadge.textContent = 'Uploading...';
+  uploadBoreholesBadge.classList.add('uploading-badge-active');
+
+  for (const file of filesArray) {
+    const fileName = file.name;
+    const lowerName = fileName.toLowerCase();
+
+    // Avoid duplicate uploads by checking filename
+    if (uploadedFilenames.has(fileName)) {
+      console.log(`Skipping duplicate upload for file: ${fileName}`);
+      continue;
+    }
+
+    if (!lowerName.endsWith('.gef')) {
+      alert(`Unsupported file format: ${fileName}. Please upload .gef files.`);
+      continue;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch(`${API_URL}/api/slim/borehole/from_gef`, {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'X-API-Key': API_KEY
+          // Note: Browser will automatically set Content-Type with multipart boundaries
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server error: ${response.status}. ${errorText}`);
+      }
+
+      const boreholeData = await response.json();
+      if (!boreholeData || !boreholeData.soil_profile) {
+        throw new Error('Invalid borehole data: missing soil profile');
+      }
+
+      // Map Borehole structure to CptData structure
+      const cptData: CptData = {
+        cpt_name: boreholeData.name || fileName.substring(0, fileName.lastIndexOf('.')) || fileName,
+        is_borehole: true,
+        soil_profile: {
+          soil_layers: (boreholeData.soil_profile.soil_layers || []).map((layer: any) => ({
+            top: Number(layer.top),
+            bottom: Number(layer.bottom),
+            soil_code: String(layer.soil_code)
+          })),
+          c: boreholeData.soil_profile.c,
+          x: Number(boreholeData.x !== undefined ? boreholeData.x : (boreholeData.soil_profile.x ?? 0)),
+          y: Number(boreholeData.y !== undefined ? boreholeData.y : (boreholeData.soil_profile.y ?? 0)),
+          location: String(boreholeData.soil_profile.location || '')
+        }
+      };
+
+      (cptData as any).filename = fileName;
+      registerUnrecognizedSoilCodes(cptData);
+      uploadedCpts.push(cptData);
+      uploadedFilenames.add(fileName);
+      addCptMarker(cptData);
+    } catch (error: any) {
+      console.error(`Error uploading borehole ${fileName}:`, error);
+      alert(`Failed to upload borehole ${fileName}: ${error.message}`);
+    }
+  }
+
+  // Restore badge status
+  uploadBoreholesBadge.textContent = originalBadgeText;
+  uploadBoreholesBadge.classList.remove('uploading-badge-active');
 });
 
 // Click listener to trigger shapefile input
@@ -589,33 +696,14 @@ fileInputShp.addEventListener('change', async () => {
   reader.readAsArrayBuffer(shpFile);
 });
 
-// Render the CPT marker and custom soil profile popup
-function addCptMarker(cpt: CptData) {
+// Bind or rebuild the default view popup on a CPT/Borehole marker
+function bindDefaultCptPopup(cpt: CptData, marker: L.Marker) {
   const profile = cpt.soil_profile;
   const { x, y } = profile;
-
-  if (typeof x !== 'number' || typeof y !== 'number') {
-    console.error(`Invalid coordinates in soil profile for ${cpt.cpt_name}`, profile);
-    return;
-  }
-
-  // Convert EPSG:28992 coordinates to WGS84
   const wgs = rdToWgs84(x, y);
-
-  // Custom pulsing divIcon
-  const customIcon = L.divIcon({
-    className: 'cpt-marker-icon',
-    html: `<div class="cpt-marker-pulse"></div><div class="cpt-marker-dot"></div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12]
-  });
-
   const layers = profile.soil_layers || [];
-  
-  // Calculate total thickness for relative layer sizes
   const totalThickness = layers.reduce((acc, layer) => acc + (layer.top - layer.bottom), 0);
 
-  // Generate visual segments and legend items
   let segmentsHtml = '';
   const legendItemsMap: Record<string, string> = {};
 
@@ -647,10 +735,13 @@ function addCptMarker(cpt: CptData) {
     `;
   });
 
+  const isBorehole = cpt.is_borehole || cpt.cpt_name.toLowerCase().startsWith('bhr');
+  const typeLabel = isBorehole ? 'Borehole' : 'CPT';
+
   const popupHtml = `
     <div class="cpt-popup">
       <div class="cpt-popup-header">
-        <h4>CPT: ${cpt.cpt_name}</h4>
+        <h4>${typeLabel}: ${cpt.cpt_name}</h4>
         <div style="display: flex; gap: 4px; align-items: center;">
           <button class="cpt-edit-btn" title="Edit soil profile">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px;">
@@ -681,20 +772,70 @@ function addCptMarker(cpt: CptData) {
     </div>
   `;
 
-  // Place marker and bind popup
-  const marker = L.marker([wgs.lat, wgs.lng], { icon: customIcon }).addTo(map);
   marker.bindPopup(popupHtml, {
     maxWidth: 320
   });
+
+  // If the popup is open, we need to bind the button event listeners immediately
+  const setupButtons = (popupEl: HTMLElement) => {
+    const deleteBtn = popupEl.querySelector('.cpt-delete-btn');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', () => {
+        if (confirm(`Are you sure you want to remove ${isBorehole ? 'Borehole' : 'CPT'} ${cpt.cpt_name} from the project?`)) {
+          removeCpt(cpt, marker);
+        }
+      });
+    }
+    const editBtn = popupEl.querySelector('.cpt-edit-btn');
+    if (editBtn) {
+      editBtn.addEventListener('click', () => {
+        openCptEditor(cpt, marker);
+      });
+    }
+  };
+
+  if (marker.isPopupOpen()) {
+    const popupEl = marker.getPopup()?.getElement();
+    if (popupEl) {
+      setupButtons(popupEl);
+    }
+  }
+}
+
+// Render the CPT marker and custom soil profile popup
+function addCptMarker(cpt: CptData) {
+  const profile = cpt.soil_profile;
+  const { x, y } = profile;
+
+  if (typeof x !== 'number' || typeof y !== 'number') {
+    console.error(`Invalid coordinates in soil profile for ${cpt.cpt_name}`, profile);
+    return;
+  }
+
+  // Convert EPSG:28992 coordinates to WGS84
+  const wgs = rdToWgs84(x, y);
+
+  // Custom pulsing divIcon
+  const customIcon = L.divIcon({
+    className: 'cpt-marker-icon',
+    html: `<div class="cpt-marker-pulse"></div><div class="cpt-marker-dot"></div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+  });
+
+  // Place marker and bind popup
+  const marker = L.marker([wgs.lat, wgs.lng], { icon: customIcon }).addTo(map);
+  bindDefaultCptPopup(cpt, marker);
 
   // Attach event listener to delete and edit buttons when popup is opened
   marker.on('popupopen', () => {
     const popupEl = marker.getPopup()?.getElement();
     if (popupEl) {
+      const isBorehole = cpt.is_borehole || cpt.cpt_name.toLowerCase().startsWith('bhr');
       const deleteBtn = popupEl.querySelector('.cpt-delete-btn');
       if (deleteBtn) {
         deleteBtn.addEventListener('click', () => {
-          if (confirm(`Are you sure you want to remove CPT ${cpt.cpt_name} from the project?`)) {
+          if (confirm(`Are you sure you want to remove ${isBorehole ? 'Borehole' : 'CPT'} ${cpt.cpt_name} from the project?`)) {
             removeCpt(cpt, marker);
           }
         });
@@ -969,6 +1110,12 @@ function openCptEditor(cpt: CptData, marker: L.Marker) {
   if (popupEl) {
     bindEditorEvents(popupEl);
   }
+
+  // Restore the default view popup when the editor popup closes
+  const restoreDefaultPopup = () => {
+    bindDefaultCptPopup(cpt, marker);
+  };
+  marker.once('popupclose', restoreDefaultPopup);
 }
 
 // Function to dynamically update the Soil Profile Editor visual positions and labels
@@ -1775,7 +1922,7 @@ btnDownloadProfile.addEventListener('click', () => {
     });
 });
 
-// Download BRO CPT data along polyline
+// Download BRO CPT and Borehole data along polyline
 btnDownloadBro.addEventListener('click', async () => {
   if (polylinePoints.length < 2) {
     alert('Please draw a line with at least 2 points on the map first.');
@@ -1804,40 +1951,69 @@ btnDownloadBro.addEventListener('click', async () => {
       }
     }
 
-    console.log(rdPoints);
+    console.log('RD points:', rdPoints);
 
-    // 2. Fetch CPT metadata along the polyline from BRO
-    const metadataResponse = await fetch(`${API_URL}/api/slim/bro/cpt_metadata/by_polyline`, {
-      method: 'POST',
-      headers: {
-        'accept': 'application/json',
-        'X-API-Key': API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        points: rdPoints,
-        offset: maxDistance
-      })
-    });
-
-    if (!metadataResponse.ok) {
-      const errText = await metadataResponse.text();
-      throw new Error(`Failed to fetch BRO CPT metadata: ${metadataResponse.status}. ${errText}`);
+    // 2. Fetch CPT and Borehole metadata along the polyline from BRO
+    let characteristics = [];
+    try {
+      const metadataResponse = await fetch(`${API_URL}/api/slim/bro/cpt_metadata/by_polyline`, {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          points: rdPoints,
+          offset: maxDistance
+        })
+      });
+      if (metadataResponse.ok) {
+        const metadataData = await metadataResponse.json();
+        characteristics = metadataData.cpt_characteristics || [];
+      } else {
+        const errText = await metadataResponse.text();
+        console.warn(`Failed to fetch BRO CPT metadata: ${metadataResponse.status}. ${errText}`);
+      }
+    } catch (e: any) {
+      console.warn('Error fetching BRO CPT metadata:', e);
     }
 
-    const metadataData = await metadataResponse.json();
-    const characteristics = metadataData.cpt_characteristics || [];
+    let boreholeCharacteristics = [];
+    try {
+      const bhMetadataResponse = await fetch(`${API_URL}/api/slim/bro/borehole_metadata/by_polyline`, {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          points: rdPoints,
+          offset: maxDistance
+        })
+      });
+      if (bhMetadataResponse.ok) {
+        const bhMetadataData = await bhMetadataResponse.json();
+        boreholeCharacteristics = bhMetadataData.borehole_characteristics || [];
+      } else {
+        const errText = await bhMetadataResponse.text();
+        console.warn(`Failed to fetch BRO Borehole metadata: ${bhMetadataResponse.status}. ${errText}`);
+      }
+    } catch (e: any) {
+      console.warn('Error fetching BRO Borehole metadata:', e);
+    }
 
-    if (characteristics.length === 0) {
-      alert('No BRO CPTs found near the active polyline.');
+    if (characteristics.length === 0 && boreholeCharacteristics.length === 0) {
+      alert('No BRO CPTs or Boreholes found near the active polyline.');
       return;
     }
 
-    console.log(`Found ${characteristics.length} CPTs from BRO:`, characteristics);
+    console.log(`Found ${characteristics.length} CPTs and ${boreholeCharacteristics.length} Boreholes from BRO.`);
 
-    // 3. For each BRO ID, retrieve CPT interpretation
-    let successCount = 0;
-    let skipCount = 0;
+    // 3. Retrieve CPT interpretations
+    let successCptCount = 0;
+    let skipCptCount = 0;
 
     for (const item of characteristics) {
       const broId = item.bro_id;
@@ -1853,7 +2029,7 @@ btnDownloadBro.addEventListener('click', async () => {
 
       if (isAlreadyUploaded) {
         console.log(`Skipping CPT ${broId} because it is already uploaded.`);
-        skipCount++;
+        skipCptCount++;
         continue;
       }
 
@@ -1865,36 +2041,113 @@ btnDownloadBro.addEventListener('click', async () => {
         }
       }
 
-      const interpResponse = await fetch(`${API_URL}/api/slim/bro/cpt_interpretation`, {
-        method: 'POST',
-        headers: {
-          'accept': 'application/json',
-          'X-API-Key': API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          bro_id: broId,
-          method: 2,
-          minimum_layerheight: minLH,
-          peat_friction_ratio: 6
-        })
+      try {
+        const interpResponse = await fetch(`${API_URL}/api/slim/bro/cpt_interpretation`, {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'X-API-Key': API_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            bro_id: broId,
+            method: 2,
+            minimum_layerheight: minLH,
+            peat_friction_ratio: 6
+          })
+        });
+
+        if (!interpResponse.ok) {
+          console.warn(`Failed to fetch interpretation for ${broId}: ${interpResponse.status}`);
+          continue;
+        }
+
+        const data: CptData = await interpResponse.json();
+        (data as any).filename = fileName;
+        registerUnrecognizedSoilCodes(data);
+        uploadedCpts.push(data);
+        uploadedFilenames.add(fileName);
+        addCptMarker(data);
+        successCptCount++;
+      } catch (err) {
+        console.warn(`Error importing CPT ${broId}:`, err);
+      }
+    }
+
+    // 4. Retrieve Boreholes
+    let successBoreholeCount = 0;
+    let skipBoreholeCount = 0;
+
+    for (const item of boreholeCharacteristics) {
+      const broId = item.bro_id;
+      const fileName = `${broId}.gef`; // Or XML depending on how it's saved/stored
+
+      // Avoid duplicates using the BRO ID
+      const isAlreadyUploaded = uploadedCpts.some(cpt => {
+        const nameMatch = cpt.cpt_name.toLowerCase() === broId.toLowerCase();
+        const fn = ((cpt as any).filename || '').toLowerCase();
+        const fileMatch = fn.includes(broId.toLowerCase());
+        return nameMatch || fileMatch;
       });
 
-      if (!interpResponse.ok) {
-        console.warn(`Failed to fetch interpretation for ${broId}: ${interpResponse.status}`);
+      if (isAlreadyUploaded) {
+        console.log(`Skipping Borehole ${broId} because it is already uploaded.`);
+        skipBoreholeCount++;
         continue;
       }
 
-      const data: CptData = await interpResponse.json();
-      (data as any).filename = fileName;
-      uploadedCpts.push(data);
-      uploadedFilenames.add(fileName);
-      addCptMarker(data);
-      successCount++;
+      try {
+        const bhResponse = await fetch(`${API_URL}/api/slim/borehole/from_bro_id/${broId}`, {
+          method: 'GET',
+          headers: {
+            'accept': 'application/json',
+            'X-API-Key': API_KEY
+          }
+        });
+
+        if (!bhResponse.ok) {
+          console.warn(`Failed to fetch Borehole details for ${broId}: ${bhResponse.status}`);
+          continue;
+        }
+
+        const boreholeData = await bhResponse.json();
+        if (!boreholeData || !boreholeData.soil_profile) {
+          console.warn(`Invalid borehole data structure for ${broId}`);
+          continue;
+        }
+
+        // Map Borehole structure to CptData structure
+        const cptData: CptData = {
+          cpt_name: boreholeData.name || broId,
+          is_borehole: true,
+          soil_profile: {
+            soil_layers: (boreholeData.soil_profile.soil_layers || []).map((layer: any) => ({
+              top: Number(layer.top),
+              bottom: Number(layer.bottom),
+              soil_code: String(layer.soil_code)
+            })),
+            c: boreholeData.soil_profile.c,
+            x: Number(boreholeData.x !== undefined ? boreholeData.x : (boreholeData.soil_profile.x ?? 0)),
+            y: Number(boreholeData.y !== undefined ? boreholeData.y : (boreholeData.soil_profile.y ?? 0)),
+            location: String(boreholeData.soil_profile.location || '')
+          }
+        };
+
+        (cptData as any).filename = fileName;
+        registerUnrecognizedSoilCodes(cptData);
+        uploadedCpts.push(cptData);
+        uploadedFilenames.add(fileName);
+        addCptMarker(cptData);
+        successBoreholeCount++;
+      } catch (err) {
+        console.warn(`Error importing Borehole ${broId}:`, err);
+      }
     }
 
-    alert(`Successfully imported ${successCount} BRO CPTs.${skipCount > 0 ? ` (Skipped ${skipCount} duplicates)` : ''}`);
-    
+    const cptMsg = `Imported ${successCptCount} BRO CPTs${skipCptCount > 0 ? ` (Skipped ${skipCptCount} duplicates)` : ''}`;
+    const bhMsg = `Imported ${successBoreholeCount} BRO Boreholes${skipBoreholeCount > 0 ? ` (Skipped ${skipBoreholeCount} duplicates)` : ''}`;
+    alert(`Successfully completed BRO import:\n- ${cptMsg}\n- ${bhMsg}`);
+
   } catch (error: any) {
     console.error('Error downloading BRO data:', error);
     alert(`Failed to download BRO data: ${error.message}`);
@@ -2488,6 +2741,7 @@ fileInputProject.addEventListener('change', async (e: Event) => {
 
     // 3. Re-populate CPTs
     projectData.uploadedCpts.forEach((cpt: CptData) => {
+      registerUnrecognizedSoilCodes(cpt);
       uploadedCpts.push(cpt);
       addCptMarker(cpt);
     });
@@ -2652,98 +2906,11 @@ function getUsedSoilNames(): Set<string> {
 // Rebuild CPT marker popup HTML when colors change
 function rebuildCptMarkerPopups() {
   cptMarkerList.forEach(({ cpt, marker }) => {
-    const profile = cpt.soil_profile;
-    const { x, y } = profile;
-    const wgs = rdToWgs84(x, y);
-    const layers = profile.soil_layers || [];
-    const totalThickness = layers.reduce((acc, layer) => acc + (layer.top - layer.bottom), 0);
-
-    let segmentsHtml = '';
-    const legendItemsMap: Record<string, string> = {};
-
-    layers.forEach((layer) => {
-      const thickness = layer.top - layer.bottom;
-      const heightPercent = totalThickness > 0 ? (thickness / totalThickness) * 100 : 0;
-      const color = soilColors[layer.soil_code] || '#808080';
-      
-      legendItemsMap[layer.soil_code] = color;
-      const displayName = layer.soil_code.replace(/_/g, ' ');
-
-      segmentsHtml += `
-        <div 
-          class="soil-layer-segment" 
-          style="height: ${heightPercent}%; background-color: ${color};" 
-          title="${displayName}: ${layer.top.toFixed(2)}m to ${layer.bottom.toFixed(2)}m (${thickness.toFixed(2)}m)"
-        ></div>
-      `;
-    });
-
-    let legendHtml = '';
-    Object.entries(legendItemsMap).forEach(([code, color]) => {
-      const displayName = code.replace(/_/g, ' ');
-      legendHtml += `
-        <div class="legend-item">
-          <div class="legend-color-box" style="background-color: ${color};"></div>
-          <div class="legend-text" title="${displayName}">${displayName}</div>
-        </div>
-      `;
-    });
-
-    const popupHtml = `
-      <div class="cpt-popup">
-        <div class="cpt-popup-header">
-          <h4>CPT: ${cpt.cpt_name}</h4>
-          <div style="display: flex; gap: 4px; align-items: center;">
-            <button class="cpt-edit-btn" title="Edit soil profile">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px;">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-              </svg>
-            </button>
-            <button class="cpt-delete-btn" title="Remove CPT from project">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="cpt-coords">
-          <div><strong>RD:</strong> X: ${x.toFixed(1)}, Y: ${y.toFixed(1)}</div>
-          <div><strong>WGS84:</strong> Lat: ${wgs.lat.toFixed(5)}, Lng: ${wgs.lng.toFixed(5)}</div>
-        </div>
-        <div class="soil-profile-viz">
-          <div class="soil-bar-container">
-            ${segmentsHtml}
-          </div>
-          <div class="soil-legend">
-            ${legendHtml}
-          </div>
-        </div>
-      </div>
-    `;
-
-    marker.setPopupContent(popupHtml);
-
-    // If popup is currently open, bind the delete and edit event listeners to the fresh HTML immediately
-    if (marker.isPopupOpen()) {
-      const popupEl = marker.getPopup()?.getElement();
-      if (popupEl) {
-        const deleteBtn = popupEl.querySelector('.cpt-delete-btn');
-        if (deleteBtn) {
-          deleteBtn.addEventListener('click', () => {
-            if (confirm(`Are you sure you want to remove CPT ${cpt.cpt_name} from the project?`)) {
-              removeCpt(cpt, marker);
-            }
-          });
-        }
-        const editBtn = popupEl.querySelector('.cpt-edit-btn');
-        if (editBtn) {
-          editBtn.addEventListener('click', () => {
-            openCptEditor(cpt, marker);
-          });
-        }
-      }
+    // Only rebuild/rebind if the edit popup is not currently open on this marker
+    const popupEl = marker.getPopup()?.getElement();
+    const isEditing = popupEl && popupEl.querySelector('.cpt-edit-popup');
+    if (!isEditing) {
+      bindDefaultCptPopup(cpt, marker);
     }
   });
 }
