@@ -1006,6 +1006,21 @@ function updateEditorDOM(
   }
 }
 
+// Function to update color indicators in the 3D Voxel layers legend list in real time
+function updateVoxelLegendColors() {
+  if (!viewerLayersList) return;
+  const items = viewerLayersList.querySelectorAll('label.layer-item');
+  items.forEach((item) => {
+    const name = item.getAttribute('data-layer-name');
+    if (name) {
+      const colorIndicator = item.querySelector('.layer-color-indicator') as HTMLDivElement;
+      if (colorIndicator) {
+        colorIndicator.style.backgroundColor = soilColors[name] || '#808080';
+      }
+    }
+  });
+}
+
 // ==========================================
 // Drawing Functionality
 // ==========================================
@@ -1966,12 +1981,13 @@ voxelModelViewer.addEventListener('load', () => {
 
     // Create a checkbox for each layer
     layers.forEach(({ name, node }) => {
-      // Find the color from our color map (defaulting to defaultSoilColors)
-      const color = defaultSoilColors[name] || '#808080';
+      // Find the color from our active color map (defaulting to general soilColors)
+      const color = soilColors[name] || '#808080';
       const displayName = name.replace(/_/g, ' ');
 
       const itemEl = document.createElement('label');
       itemEl.className = 'layer-item';
+      itemEl.setAttribute('data-layer-name', name);
 
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
@@ -2449,6 +2465,7 @@ fileInputProject.addEventListener('change', async (e: Event) => {
     // 2. Re-populate files and settings
     if (projectData.soilColors) {
       soilColors = { ...projectData.soilColors };
+      updateVoxelLegendColors();
       // Refresh soils maintenance modal list if it's currently open
       if (soilMaintenanceOverlay && soilMaintenanceOverlay.classList.contains('active')) {
         renderSoilsList();
@@ -2771,6 +2788,7 @@ function renderSoilsList() {
       soilColors[keyVal] = target.value;
 
       rebuildCptMarkerPopups();
+      updateVoxelLegendColors();
 
       if (profile2dView.style.display === 'flex') {
         render2dProfile();
@@ -2785,6 +2803,7 @@ function renderSoilsList() {
           delete soilColors[key];
           renderSoilsList();
           rebuildCptMarkerPopups();
+          updateVoxelLegendColors();
           if (profile2dView.style.display === 'flex') {
             render2dProfile();
           }
@@ -2827,6 +2846,7 @@ btnAddSoilType.addEventListener('click', () => {
 
   renderSoilsList();
   rebuildCptMarkerPopups();
+  updateVoxelLegendColors();
   if (profile2dView.style.display === 'flex') {
     render2dProfile();
   }
