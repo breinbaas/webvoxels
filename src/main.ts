@@ -823,13 +823,13 @@ function openCptEditor(cpt: CptData, marker: L.Marker) {
 
     for (let i = 0; i < draftLayers.length - 1; i++) {
       const zBoundary = draftLayers[i].bottom;
-      const yPixels = ((absoluteTop - zBoundary) / totalHeight) * 250;
+      const yPct = ((absoluteTop - zBoundary) / totalHeight) * 100;
 
       handlesHtml += `
         <div 
           class="cpt-edit-handle" 
           data-handle-index="${i}" 
-          style="top: ${yPixels}px;"
+          style="top: ${yPct}%;"
         >
           <div class="cpt-edit-handle-line"></div>
           <div class="cpt-edit-knob"></div>
@@ -878,7 +878,7 @@ function openCptEditor(cpt: CptData, marker: L.Marker) {
         const onMouseMove = (moveEvent: MouseEvent) => {
           const rect = vizContainer.getBoundingClientRect();
           const relativeY = moveEvent.clientY - rect.top;
-          let newZ = absoluteTop - (relativeY / 250) * totalHeight;
+          let newZ = absoluteTop - (relativeY / rect.height) * totalHeight;
 
           const minThickness = 0.05;
           const upperLimit = draftLayers[handleIdx].top - minThickness;
@@ -961,7 +961,7 @@ function openCptEditor(cpt: CptData, marker: L.Marker) {
 
   const editorPopupHtml = buildEditorHtml();
   marker.bindPopup(editorPopupHtml, {
-    maxWidth: 420,
+    maxWidth: 450,
     closeOnClick: false
   }).openPopup();
 
@@ -997,11 +997,11 @@ function updateEditorDOM(
 
   for (let i = 0; i < draftLayers.length - 1; i++) {
     const zBoundary = draftLayers[i].bottom;
-    const yPixels = ((absoluteTop - zBoundary) / totalHeight) * 250;
+    const yPct = ((absoluteTop - zBoundary) / totalHeight) * 100;
 
     const handle = vizContainer.querySelector(`.cpt-edit-handle[data-handle-index="${i}"]`) as HTMLElement;
     if (handle) {
-      handle.style.top = `${yPixels}px`;
+      handle.style.top = `${yPct}%`;
     }
   }
 }

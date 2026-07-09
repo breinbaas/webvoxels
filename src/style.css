@@ -1394,7 +1394,8 @@ html, body {
 
 /* Soil Profile Editor Styles */
 .cpt-edit-popup {
-  min-width: 380px;
+  min-width: 440px;
+  height: 75vh;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1411,12 +1412,14 @@ html, body {
   display: flex;
   gap: 20px;
   margin-top: 8px;
+  flex: 1;
+  min-height: 0;
 }
 
 /* Visual Drag Editor */
 .cpt-edit-viz-container {
   width: 60px;
-  height: 250px;
+  height: 100%;
   position: relative;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-color);
@@ -1494,7 +1497,7 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 250px;
+  height: 100%;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -1588,6 +1591,31 @@ html, body {
 .cpt-edit-btn:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
+}
+
+/* Allow Leaflet popup content to size dynamically to 80% height */
+.leaflet-popup:has(.cpt-edit-popup) .leaflet-popup-content-wrapper {
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  color: #fff;
+}
+.leaflet-popup:has(.cpt-edit-popup) .leaflet-popup-content {
+  margin: 12px;
+  width: auto !important;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.leaflet-popup:has(.cpt-edit-popup) .leaflet-popup-tip {
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
 }
 
 
