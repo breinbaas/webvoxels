@@ -651,12 +651,20 @@ function addCptMarker(cpt: CptData) {
     <div class="cpt-popup">
       <div class="cpt-popup-header">
         <h4>CPT: ${cpt.cpt_name}</h4>
-        <button class="cpt-delete-btn" title="Remove CPT from project">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-          </svg>
-        </button>
+        <div style="display: flex; gap: 4px; align-items: center;">
+          <button class="cpt-edit-btn" title="Edit soil profile">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px;">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
+          <button class="cpt-delete-btn" title="Remove CPT from project">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="cpt-coords">
         <div><strong>RD:</strong> X: ${x.toFixed(1)}, Y: ${y.toFixed(1)}</div>
@@ -679,7 +687,7 @@ function addCptMarker(cpt: CptData) {
     maxWidth: 320
   });
 
-  // Attach event listener to delete button when popup is opened
+  // Attach event listener to delete and edit buttons when popup is opened
   marker.on('popupopen', () => {
     const popupEl = marker.getPopup()?.getElement();
     if (popupEl) {
@@ -689,6 +697,12 @@ function addCptMarker(cpt: CptData) {
           if (confirm(`Are you sure you want to remove CPT ${cpt.cpt_name} from the project?`)) {
             removeCpt(cpt, marker);
           }
+        });
+      }
+      const editBtn = popupEl.querySelector('.cpt-edit-btn');
+      if (editBtn) {
+        editBtn.addEventListener('click', () => {
+          openCptEditor(cpt, marker);
         });
       }
     }
@@ -742,6 +756,253 @@ function removeCpt(cpt: CptData, marker: L.Marker) {
   // Refresh 2D Profile view if open
   if (profile2dView.style.display === 'flex') {
     render2dProfile();
+  }
+}
+
+// Function to open the interactive soil profile editor in a Leaflet popup
+function openCptEditor(cpt: CptData, marker: L.Marker) {
+  const layersCopy = JSON.parse(JSON.stringify(cpt.soil_profile.soil_layers || []));
+  layersCopy.sort((a: any, b: any) => b.top - a.top);
+
+  const originalLayers = JSON.parse(JSON.stringify(layersCopy));
+  let draftLayers = JSON.parse(JSON.stringify(layersCopy));
+
+  if (draftLayers.length === 0) {
+    alert('This CPT has no soil layers to edit.');
+    return;
+  }
+
+  const absoluteTop = draftLayers[0].top;
+  const absoluteBottom = draftLayers[draftLayers.length - 1].bottom;
+  const totalHeight = absoluteTop - absoluteBottom;
+
+  if (totalHeight <= 0) {
+    alert('Invalid soil profile depth.');
+    return;
+  }
+
+  marker.closePopup();
+
+  const buildEditorHtml = () => {
+    let segmentsHtml = '';
+    let handlesHtml = '';
+    let listRowsHtml = '';
+
+    draftLayers.forEach((layer: any, idx: number) => {
+      const topPct = ((absoluteTop - layer.top) / totalHeight) * 100;
+      const heightPct = ((layer.top - layer.bottom) / totalHeight) * 100;
+      const color = soilColors[layer.soil_code] || '#808080';
+
+      segmentsHtml += `
+        <div 
+          class="cpt-edit-layer-segment" 
+          data-layer-index="${idx}" 
+          style="top: ${topPct}%; height: ${heightPct}%; background-color: ${color};"
+        ></div>
+      `;
+
+      let selectOptions = '';
+      Object.keys(soilColors).forEach((code) => {
+        selectOptions += `<option value="${code}" ${code === layer.soil_code ? 'selected' : ''}>${code.replace(/_/g, ' ')}</option>`;
+      });
+
+      listRowsHtml += `
+        <div class="layer-edit-row" data-row-index="${idx}">
+          <div class="layer-edit-info">
+            <span class="layer-edit-label">Layer ${idx + 1}</span>
+            <span class="layer-edit-depths" data-depth-index="${idx}">
+              ${layer.top.toFixed(2)}m to ${layer.bottom.toFixed(2)}m
+            </span>
+          </div>
+          <select class="layer-edit-select" data-select-index="${idx}">
+            ${selectOptions}
+          </select>
+        </div>
+      `;
+    });
+
+    for (let i = 0; i < draftLayers.length - 1; i++) {
+      const zBoundary = draftLayers[i].bottom;
+      const yPixels = ((absoluteTop - zBoundary) / totalHeight) * 250;
+
+      handlesHtml += `
+        <div 
+          class="cpt-edit-handle" 
+          data-handle-index="${i}" 
+          style="top: ${yPixels}px;"
+        >
+          <div class="cpt-edit-handle-line"></div>
+          <div class="cpt-edit-knob"></div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="cpt-edit-popup">
+        <div class="cpt-popup-header">
+          <h4>Edit Profile: ${cpt.cpt_name}</h4>
+        </div>
+        <div class="cpt-edit-editor-area">
+          <div class="cpt-edit-viz-container">
+            <div class="cpt-edit-bar-container">
+              ${segmentsHtml}
+            </div>
+            ${handlesHtml}
+          </div>
+          <div class="cpt-edit-layers-list">
+            ${listRowsHtml}
+          </div>
+        </div>
+        <div class="edit-actions-row">
+          <button class="menu-btn secondary btn-edit-cancel" id="btn-edit-cancel" style="padding: 6px 12px; font-size: 0.85rem;">Cancel</button>
+          <button class="menu-btn secondary btn-edit-reset" id="btn-edit-reset" style="padding: 6px 12px; font-size: 0.85rem;">Reset</button>
+          <button class="menu-btn btn-edit-save" id="btn-edit-save" style="padding: 6px 12px; font-size: 0.85rem;">Save</button>
+        </div>
+      </div>
+    `;
+  };
+
+  const bindEditorEvents = (popupEl: HTMLElement) => {
+    const vizContainer = popupEl.querySelector('.cpt-edit-viz-container') as HTMLElement;
+    const listContainer = popupEl.querySelector('.cpt-edit-layers-list') as HTMLElement;
+
+    const handles = popupEl.querySelectorAll('.cpt-edit-handle');
+    handles.forEach((handleEl) => {
+      handleEl.addEventListener('mousedown', (e: Event) => {
+        const mouseEvent = e as MouseEvent;
+        mouseEvent.preventDefault();
+        map.dragging.disable();
+
+        const handleIdx = parseInt(handleEl.getAttribute('data-handle-index') || '0');
+
+        const onMouseMove = (moveEvent: MouseEvent) => {
+          const rect = vizContainer.getBoundingClientRect();
+          const relativeY = moveEvent.clientY - rect.top;
+          let newZ = absoluteTop - (relativeY / 250) * totalHeight;
+
+          const minThickness = 0.05;
+          const upperLimit = draftLayers[handleIdx].top - minThickness;
+          const lowerLimit = draftLayers[handleIdx + 1].bottom + minThickness;
+
+          if (newZ > upperLimit) newZ = upperLimit;
+          if (newZ < lowerLimit) newZ = lowerLimit;
+
+          draftLayers[handleIdx].bottom = newZ;
+          draftLayers[handleIdx + 1].top = newZ;
+
+          updateEditorDOM(draftLayers, vizContainer, listContainer, absoluteTop, totalHeight);
+        };
+
+        const onMouseUp = () => {
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup', onMouseUp);
+          map.dragging.enable();
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+      });
+    });
+
+    const selects = popupEl.querySelectorAll('.layer-edit-select');
+    selects.forEach((selectEl) => {
+      selectEl.addEventListener('change', (e) => {
+        const target = e.target as HTMLSelectElement;
+        const idx = parseInt(target.getAttribute('data-select-index') || '0');
+        const newCode = target.value;
+
+        draftLayers[idx].soil_code = newCode;
+
+        const segment = vizContainer.querySelector(`.cpt-edit-layer-segment[data-layer-index="${idx}"]`) as HTMLElement;
+        if (segment) {
+          segment.style.backgroundColor = soilColors[newCode] || '#808080';
+        }
+      });
+    });
+
+    const btnCancel = popupEl.querySelector('#btn-edit-cancel') as HTMLButtonElement;
+    btnCancel.addEventListener('click', () => {
+      marker.closePopup();
+      rebuildCptMarkerPopups();
+      marker.openPopup();
+    });
+
+    const btnReset = popupEl.querySelector('#btn-edit-reset') as HTMLButtonElement;
+    btnReset.addEventListener('click', () => {
+      draftLayers = JSON.parse(JSON.stringify(originalLayers));
+      updateEditorDOM(draftLayers, vizContainer, listContainer, absoluteTop, totalHeight);
+
+      const selectsToReset = popupEl.querySelectorAll('.layer-edit-select');
+      selectsToReset.forEach((selectEl) => {
+        const idx = parseInt(selectEl.getAttribute('data-select-index') || '0');
+        const select = selectEl as HTMLSelectElement;
+        select.value = draftLayers[idx].soil_code;
+
+        const segment = vizContainer.querySelector(`.cpt-edit-layer-segment[data-layer-index="${idx}"]`) as HTMLElement;
+        if (segment) {
+          segment.style.backgroundColor = soilColors[draftLayers[idx].soil_code] || '#808080';
+        }
+      });
+    });
+
+    const btnSave = popupEl.querySelector('#btn-edit-save') as HTMLButtonElement;
+    btnSave.addEventListener('click', () => {
+      cpt.soil_profile.soil_layers = JSON.parse(JSON.stringify(draftLayers));
+      rebuildCptMarkerPopups();
+
+      if (profile2dView.style.display === 'flex') {
+        render2dProfile();
+      }
+
+      marker.closePopup();
+      marker.openPopup();
+    });
+  };
+
+  const editorPopupHtml = buildEditorHtml();
+  marker.bindPopup(editorPopupHtml, {
+    maxWidth: 420,
+    closeOnClick: false
+  }).openPopup();
+
+  const popupEl = marker.getPopup()?.getElement();
+  if (popupEl) {
+    bindEditorEvents(popupEl);
+  }
+}
+
+// Function to dynamically update the Soil Profile Editor visual positions and labels
+function updateEditorDOM(
+  draftLayers: any[],
+  vizContainer: HTMLElement,
+  listContainer: HTMLElement,
+  absoluteTop: number,
+  totalHeight: number
+) {
+  draftLayers.forEach((layer, idx) => {
+    const topPct = ((absoluteTop - layer.top) / totalHeight) * 100;
+    const heightPct = ((layer.top - layer.bottom) / totalHeight) * 100;
+
+    const segment = vizContainer.querySelector(`.cpt-edit-layer-segment[data-layer-index="${idx}"]`) as HTMLElement;
+    if (segment) {
+      segment.style.top = `${topPct}%`;
+      segment.style.height = `${heightPct}%`;
+    }
+
+    const textLabel = listContainer.querySelector(`.layer-edit-depths[data-depth-index="${idx}"]`) as HTMLElement;
+    if (textLabel) {
+      textLabel.textContent = `${layer.top.toFixed(2)}m to ${layer.bottom.toFixed(2)}m`;
+    }
+  });
+
+  for (let i = 0; i < draftLayers.length - 1; i++) {
+    const zBoundary = draftLayers[i].bottom;
+    const yPixels = ((absoluteTop - zBoundary) / totalHeight) * 250;
+
+    const handle = vizContainer.querySelector(`.cpt-edit-handle[data-handle-index="${i}"]`) as HTMLElement;
+    if (handle) {
+      handle.style.top = `${yPixels}px`;
+    }
   }
 }
 
@@ -2407,12 +2668,20 @@ function rebuildCptMarkerPopups() {
       <div class="cpt-popup">
         <div class="cpt-popup-header">
           <h4>CPT: ${cpt.cpt_name}</h4>
-          <button class="cpt-delete-btn" title="Remove CPT from project">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            </svg>
-          </button>
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <button class="cpt-edit-btn" title="Edit soil profile">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px;">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+            </button>
+            <button class="cpt-delete-btn" title="Remove CPT from project">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
         </div>
         <div class="cpt-coords">
           <div><strong>RD:</strong> X: ${x.toFixed(1)}, Y: ${y.toFixed(1)}</div>
@@ -2431,7 +2700,7 @@ function rebuildCptMarkerPopups() {
 
     marker.setPopupContent(popupHtml);
 
-    // If popup is currently open, bind the delete event listener to the fresh HTML immediately
+    // If popup is currently open, bind the delete and edit event listeners to the fresh HTML immediately
     if (marker.isPopupOpen()) {
       const popupEl = marker.getPopup()?.getElement();
       if (popupEl) {
@@ -2441,6 +2710,12 @@ function rebuildCptMarkerPopups() {
             if (confirm(`Are you sure you want to remove CPT ${cpt.cpt_name} from the project?`)) {
               removeCpt(cpt, marker);
             }
+          });
+        }
+        const editBtn = popupEl.querySelector('.cpt-edit-btn');
+        if (editBtn) {
+          editBtn.addEventListener('click', () => {
+            openCptEditor(cpt, marker);
           });
         }
       }

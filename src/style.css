@@ -1392,6 +1392,204 @@ html, body {
   gap: 12px;
 }
 
+/* Soil Profile Editor Styles */
+.cpt-edit-popup {
+  min-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cpt-edit-popup h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cpt-edit-editor-area {
+  display: flex;
+  gap: 20px;
+  margin-top: 8px;
+}
+
+/* Visual Drag Editor */
+.cpt-edit-viz-container {
+  width: 60px;
+  height: 250px;
+  position: relative;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: visible; /* Let handles/knobs render slightly outside the box */
+  user-select: none;
+}
+
+.cpt-edit-bar-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.cpt-edit-layer-segment {
+  width: 100%;
+  position: absolute;
+  left: 0;
+  transition: background-color 0.2s ease;
+}
+
+/* Draggable divider handle */
+.cpt-edit-handle {
+  position: absolute;
+  left: -5px;
+  right: -5px;
+  height: 9px; /* Thickness of mouse trigger area */
+  margin-top: -5px; /* Center alignment */
+  cursor: ns-resize;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+/* Horizontal line inside the trigger area */
+.cpt-edit-handle-line {
+  width: 100%;
+  height: 2px;
+  background-color: rgba(255, 255, 255, 0.5);
+  transition: background-color 0.15s ease, height 0.15s ease;
+  pointer-events: none;
+}
+
+/* Drag indicator knob */
+.cpt-edit-knob {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background-color: #3b82f6;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  pointer-events: none;
+  z-index: 11;
+}
+
+.cpt-edit-handle:hover .cpt-edit-handle-line {
+  background-color: #3b82f6;
+  height: 3px;
+}
+
+.cpt-edit-handle:hover .cpt-edit-knob {
+  transform: scale(1.2);
+  background-color: #60a5fa;
+}
+
+/* Form list */
+.cpt-edit-layers-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Custom scrollbar for edit list */
+.cpt-edit-layers-list::-webkit-scrollbar {
+  width: 4px;
+}
+.cpt-edit-layers-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+.cpt-edit-layers-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+.layer-edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.layer-edit-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.layer-edit-label {
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--text-primary);
+}
+
+.layer-edit-depths {
+  font-family: monospace;
+}
+
+.layer-edit-select {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: #fff;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 0.825rem;
+  outline: none;
+  cursor: pointer;
+  width: 100%;
+}
+
+.layer-edit-select option {
+  background: #1e1e24;
+  color: #fff;
+}
+
+/* Edit action buttons */
+.edit-actions-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+}
+
+.cpt-edit-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.cpt-edit-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cpt-edit-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
 
 
 
