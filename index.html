@@ -39,6 +39,20 @@
                   </div>
                   <span class="option-badge" id="upload-cpts-badge">Upload</span>
                 </li>
+                <li class="menu-option" id="option-upload-json-cpts">
+                  <div class="option-info">
+                    <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" x2="12" y1="3" y2="15" />
+                    </svg>
+                    <div class="option-text">
+                      <span class="option-title">Upload Manual Soilprofiles</span>
+                      <span class="option-desc">Upload Manual Soilprofile JSON files (.json)</span>
+                    </div>
+                  </div>
+                  <span class="option-badge" id="upload-json-cpts-badge">Upload</span>
+                </li>
               </ul>
             </div>
             
@@ -263,6 +277,9 @@
 
     <!-- Hidden file input for uploading CPTs -->
     <input type="file" id="file-input-cpts" accept=".gef,.xml" multiple style="display: none;" />
+
+    <!-- Hidden file input for uploading JSON CPTs -->
+    <input type="file" id="file-input-json-cpts" accept=".json" multiple style="display: none;" />
 
     <!-- Hidden file input for uploading Shapefile -->
     <input type="file" id="file-input-shp" accept=".shp,.dbf,.shx" multiple style="display: none;" />

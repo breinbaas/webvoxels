@@ -94,6 +94,9 @@ const menuOverlay = document.getElementById('menu-overlay') as HTMLDivElement;
 const optionUploadCpts = document.getElementById('option-upload-cpts') as HTMLLIElement;
 const fileInputCpts = document.getElementById('file-input-cpts') as HTMLInputElement;
 const uploadCptsBadge = document.getElementById('upload-cpts-badge') as HTMLSpanElement;
+const optionUploadJsonCpts = document.getElementById('option-upload-json-cpts') as HTMLLIElement;
+const fileInputJsonCpts = document.getElementById('file-input-json-cpts') as HTMLInputElement;
+const uploadJsonCptsBadge = document.getElementById('upload-json-cpts-badge') as HTMLSpanElement;
 const optionUploadShp = document.getElementById('option-upload-shp') as HTMLLIElement;
 const fileInputShp = document.getElementById('file-input-shp') as HTMLInputElement;
 const uploadShpBadge = document.getElementById('upload-shp-badge') as HTMLSpanElement;
@@ -305,6 +308,87 @@ fileInputCpts.addEventListener('change', async () => {
   // Restore badge status
   uploadCptsBadge.textContent = originalBadgeText;
   uploadCptsBadge.classList.remove('uploading-badge-active');
+});
+
+// Click listener to trigger JSON file input
+optionUploadJsonCpts.addEventListener('click', () => {
+  fileInputJsonCpts.click();
+});
+
+// JSON File Selection Handler
+fileInputJsonCpts.addEventListener('change', async () => {
+  const files = fileInputJsonCpts.files;
+  if (!files || files.length === 0) return;
+
+  const filesArray = Array.from(files);
+  fileInputJsonCpts.value = '';
+
+  const originalBadgeText = uploadJsonCptsBadge.textContent || 'Upload';
+  uploadJsonCptsBadge.textContent = 'Uploading...';
+  uploadJsonCptsBadge.classList.add('uploading-badge-active');
+
+  for (const file of filesArray) {
+    const fileName = file.name;
+
+    // Avoid duplicate uploads by checking filename
+    if (uploadedFilenames.has(fileName)) {
+      console.log(`Skipping duplicate upload for file: ${fileName}`);
+      continue;
+    }
+
+    try {
+      const text = await file.text();
+      const parsedData = JSON.parse(text);
+
+      if (!parsedData || typeof parsedData !== 'object') {
+        throw new Error('Invalid JSON format: root is not an object');
+      }
+
+      const soilProfile = parsedData.soil_profile;
+      if (!soilProfile || typeof soilProfile !== 'object') {
+        throw new Error('Invalid JSON format: missing soil_profile object');
+      }
+
+      if (typeof soilProfile.x !== 'number' || typeof soilProfile.y !== 'number') {
+        throw new Error('Invalid JSON format: soil_profile x and y coordinates must be numbers');
+      }
+
+      if (!Array.isArray(soilProfile.soil_layers)) {
+        throw new Error('Invalid JSON format: soil_layers must be an array');
+      }
+
+      // Use the name in the JSON if available, falling back to the filename without extension
+      const baseName = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
+      const cptName = parsedData.cpt_name || baseName;
+
+      const cptData: CptData = {
+        cpt_name: cptName,
+        soil_profile: {
+          soil_layers: soilProfile.soil_layers.map((layer: any) => ({
+            top: Number(layer.top),
+            bottom: Number(layer.bottom),
+            soil_code: String(layer.soil_code)
+          })),
+          c: soilProfile.c,
+          x: Number(soilProfile.x),
+          y: Number(soilProfile.y),
+          location: String(soilProfile.location || '')
+        }
+      };
+
+      (cptData as any).filename = fileName;
+      uploadedCpts.push(cptData);
+      uploadedFilenames.add(fileName);
+      addCptMarker(cptData);
+    } catch (error: any) {
+      console.error(`Error uploading ${fileName}:`, error);
+      alert(`Failed to parse and upload ${fileName}: ${error.message}`);
+    }
+  }
+
+  // Restore badge status
+  uploadJsonCptsBadge.textContent = originalBadgeText;
+  uploadJsonCptsBadge.classList.remove('uploading-badge-active');
 });
 
 // Click listener to trigger shapefile input
@@ -2218,6 +2302,10 @@ btnNewProject.addEventListener('click', () => {
     if (uploadCptsBadge) {
       uploadCptsBadge.textContent = 'Upload';
       uploadCptsBadge.classList.remove('uploading-badge-active');
+    }
+    if (uploadJsonCptsBadge) {
+      uploadJsonCptsBadge.textContent = 'Upload';
+      uploadJsonCptsBadge.classList.remove('uploading-badge-active');
     }
     if (uploadShpBadge) {
       uploadShpBadge.textContent = 'Upload';
