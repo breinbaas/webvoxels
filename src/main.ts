@@ -854,9 +854,9 @@ function openCptEditor(cpt: CptData, marker: L.Marker) {
           </div>
         </div>
         <div class="edit-actions-row">
-          <button class="menu-btn secondary btn-edit-cancel" id="btn-edit-cancel" style="padding: 6px 12px; font-size: 0.85rem;">Cancel</button>
-          <button class="menu-btn secondary btn-edit-reset" id="btn-edit-reset" style="padding: 6px 12px; font-size: 0.85rem;">Reset</button>
-          <button class="menu-btn btn-edit-save" id="btn-edit-save" style="padding: 6px 12px; font-size: 0.85rem;">Save</button>
+          <button class="btn-edit-cancel" id="btn-edit-cancel">Cancel</button>
+          <button class="btn-edit-reset" id="btn-edit-reset">Reset</button>
+          <button class="btn-edit-save" id="btn-edit-save">Save</button>
         </div>
       </div>
     `;
