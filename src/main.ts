@@ -2389,7 +2389,8 @@ btnSaveProject.addEventListener('click', () => {
         maxDistance,
         minLayerheight
       },
-      drawing
+      drawing,
+      soilColors
     };
 
     const jsonStr = JSON.stringify(projectData, null, 2);
@@ -2446,6 +2447,13 @@ fileInputProject.addEventListener('change', async (e: Event) => {
     uploadedFilenames.clear();
 
     // 2. Re-populate files and settings
+    if (projectData.soilColors) {
+      soilColors = { ...projectData.soilColors };
+      // Refresh soils maintenance modal list if it's currently open
+      if (soilMaintenanceOverlay && soilMaintenanceOverlay.classList.contains('active')) {
+        renderSoilsList();
+      }
+    }
     if (projectData.settings) {
       if (typeof projectData.settings.maxDistance === 'number' && settingMaxDistance) {
         settingMaxDistance.value = String(projectData.settings.maxDistance);
