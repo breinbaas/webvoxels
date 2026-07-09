@@ -29,6 +29,64 @@ html, body {
   z-index: 1;
 }
 
+/* Floating Breinbaas Logo overlay */
+.breinbaas-logo {
+  position: absolute;
+  top: 16px;
+  left: 60px; /* Shifted to the right of Leaflet zoom controls */
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(22, 22, 26, 0.75);
+  border: 1px solid var(--border-color);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 10px;
+  padding: 8px 14px;
+  text-decoration: none;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.breinbaas-logo:hover {
+  transform: translateY(-2px);
+  background: rgba(22, 22, 26, 0.85);
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.2);
+}
+
+.breinbaas-logo-icon {
+  width: 20px;
+  height: 20px;
+  color: #0ea5e9;
+  filter: drop-shadow(0 0 6px rgba(14, 165, 233, 0.4));
+}
+
+.breinbaas-logo-text {
+  font-family: var(--font-family);
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  display: flex;
+}
+
+.breinbaas-logo-brein {
+  color: #ffffff;
+}
+
+.breinbaas-logo-baas {
+  color: #0ea5e9;
+}
+
+.breinbaas-logo-sub {
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin-left: 6px;
+  font-size: 0.95rem;
+  align-self: center;
+}
+
 /* Premium Glassmorphic F2 Overlay Menu */
 .menu-overlay {
   position: fixed;

@@ -12,6 +12,18 @@
     <div id="app-container" class="app-container">
       <div id="map-container" class="map-container">
         <div id="map"></div>
+        
+        <!-- Floating Breinbaas Logo -->
+        <a href="https://breinbaas.nl/" target="_blank" class="breinbaas-logo">
+          <svg class="breinbaas-logo-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+            <line x1="12" y1="22.08" x2="12" y2="12"/>
+          </svg>
+          <span class="breinbaas-logo-text">
+            <span class="breinbaas-logo-brein">Brein</span><span class="breinbaas-logo-baas">baas</span><span class="breinbaas-logo-sub">Voxelbuilder</span>
+          </span>
+        </a>
 
         <!-- Premium Glassmorphic F2 Overlay Menu -->
         <div id="menu-overlay" class="menu-overlay">
@@ -38,6 +50,20 @@
                     </div>
                   </div>
                   <span class="option-badge" id="upload-cpts-badge">Upload</span>
+                </li>                
+                <li class="menu-option" id="option-upload-boreholes">
+                  <div class="option-info">
+                    <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" x2="12" y1="3" y2="15" />
+                    </svg>
+                    <div class="option-text">
+                      <span class="option-title">Upload Boreholes (*.gef)</span>
+                      <span class="option-desc">Upload Borehole data (.gef)</span>
+                    </div>
+                  </div>
+                  <span class="option-badge" id="upload-boreholes-badge">Upload</span>
                 </li>
                 <li class="menu-option" id="option-upload-json-cpts">
                   <div class="option-info">
@@ -52,20 +78,6 @@
                     </div>
                   </div>
                   <span class="option-badge" id="upload-json-cpts-badge">Upload</span>
-                </li>
-                <li class="menu-option" id="option-upload-boreholes">
-                  <div class="option-info">
-                    <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="17 8 12 3 7 8" />
-                      <line x1="12" x2="12" y1="3" y2="15" />
-                    </svg>
-                    <div class="option-text">
-                      <span class="option-title">Upload Boreholes (*.gef)</span>
-                      <span class="option-desc">Upload Borehole data (.gef)</span>
-                    </div>
-                  </div>
-                  <span class="option-badge" id="upload-boreholes-badge">Upload</span>
                 </li>
                 <li class="menu-option" id="option-soil-maintenance">
                   <div class="option-info">
