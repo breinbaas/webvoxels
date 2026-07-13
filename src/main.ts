@@ -149,6 +149,7 @@ const profileLegend = document.getElementById('profile-legend') as HTMLDivElemen
 const settingMaxDistance = document.getElementById('setting-max-distance') as HTMLInputElement;
 const settingMinLayerheight = document.getElementById('setting-min-layerheight') as HTMLInputElement;
 const settingDownloadBoreholes = document.getElementById('setting-download-boreholes') as HTMLInputElement;
+const settingDeterministic = document.getElementById('setting-deterministic') as HTMLInputElement;
 const btnDownloadProfile = document.getElementById('btn-download-profile') as HTMLButtonElement;
 const profileAxisXTicks = document.getElementById('profile-axis-x-ticks') as HTMLDivElement;
 
@@ -1359,41 +1360,41 @@ btnGenerateVoxel.addEventListener('click', async () => {
       }
 
       // 4. Calculate Z boundaries from CPTs inside the rectangle
-      let minZ = Infinity;
-      let maxZ = -Infinity;
+      let zMin = Infinity;
+      let zMax = -Infinity;
       cptsInside.forEach((cpt) => {
         (cpt.soil_profile.soil_layers || []).forEach((layer) => {
-          if (layer.bottom < minZ) minZ = layer.bottom;
-          if (layer.top > maxZ) maxZ = layer.top;
+          if (layer.bottom < zMin) zMin = layer.bottom;
+          if (layer.top > zMax) zMax = layer.top;
         });
       });
 
-      if (minZ === Infinity || maxZ === -Infinity) {
+      if (zMin === Infinity || zMax === -Infinity) {
         throw new Error('Could not compute Z boundaries from CPTs in the area.');
       }
 
-      // 5. Centering coordinates around 0,0,0
-      const xCenter = (xMin + xMax) / 2;
-      const yCenter = (yMin + yMax) / 2;
-      const zCenter = (minZ + maxZ) / 2;
+      // // 5. Centering coordinates around 0,0,0
+      // const xCenter = (xMin + xMax) / 2;
+      // const yCenter = (yMin + yMax) / 2;
+      // const zCenter = (minZ + maxZ) / 2;
 
-      // Apply translations and rounding (no offsets added)
-      const x_min = Math.round(xMin - xCenter);
-      const x_max = Math.round(xMax - xCenter);
-      const y_min = Math.round(yMin - yCenter);
-      const y_max = Math.round(yMax - yCenter);
-      const z_min = Math.round(minZ - zCenter);
-      const z_max = Math.round(maxZ - zCenter);
+      // // Apply translations and rounding (no offsets added)
+      // const x_min = Math.round(xMin - xCenter);
+      // const x_max = Math.round(xMax - xCenter);
+      // const y_min = Math.round(yMin - yCenter);
+      // const y_max = Math.round(yMax - yCenter);
+      // const z_min = Math.round(minZ - zCenter);
+      // const z_max = Math.round(maxZ - zCenter);
 
       // Center each CPT's coordinates and its soil layers:
       const soilProfilesPayload = cptsInside.map((cpt) => {
         const prof = cpt.soil_profile;
         return {
-          x: prof.x - xCenter,
-          y: prof.y - yCenter,
+          x: prof.x,
+          y: prof.y,
           soil_layers: (prof.soil_layers || []).map((layer) => ({
-            top: layer.top - zCenter,
-            bottom: layer.bottom - zCenter,
+            top: layer.top,
+            bottom: layer.bottom,
             soil_code: layer.soil_code
           }))
         };
@@ -1402,18 +1403,19 @@ btnGenerateVoxel.addEventListener('click', async () => {
       // 6. Construct the API payload
       const payload = {
         soil_profiles: soilProfilesPayload,
-        x_min,
-        x_max,
+        x_min: xMin,
+        x_max: xMax,
         dx: 5,
-        y_min,
-        y_max,
+        y_min: yMin,
+        y_max: yMax,
         dy: 5,
-        z_min,
-        z_max,
+        z_min: zMin,
+        z_max: zMax,
         dz: 1.0,
         anisotropy_ratio: 50,
         step_size: 0.5,
-        soil_colors: soilColors
+        soil_colors: soilColors,
+        deterministic: settingDeterministic ? settingDeterministic.checked : false
       };
 
       console.log('Sending 3D GLB export request payload:', payload);
@@ -1433,28 +1435,6 @@ btnGenerateVoxel.addEventListener('click', async () => {
       // Convert points to RD coordinates
       const rdPoints = polylinePoints.map(pt => wgs84ToRd(pt.lat, pt.lng));
 
-      // Calculate total chainage
-      let totalChainage = 0;
-      for (let i = 1; i < rdPoints.length; i++) {
-        const p1 = rdPoints[i - 1];
-        const p2 = rdPoints[i];
-        totalChainage += Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
-      }
-
-      // Find xCenter and yCenter of the reference line
-      let minRDX = Infinity;
-      let maxRDX = -Infinity;
-      let minRDY = Infinity;
-      let maxRDY = -Infinity;
-      rdPoints.forEach(pt => {
-        if (pt.x < minRDX) minRDX = pt.x;
-        if (pt.x > maxRDX) maxRDX = pt.x;
-        if (pt.y < minRDY) minRDY = pt.y;
-        if (pt.y > maxRDY) maxRDY = pt.y;
-      });
-      const xCenter = (minRDX + maxRDX) / 2;
-      const yCenter = (minRDY + maxRDY) / 2;
-
       // Find Z boundaries from all uploaded CPTs
       let minZ = Infinity;
       let maxZ = -Infinity;
@@ -1468,42 +1448,38 @@ btnGenerateVoxel.addEventListener('click', async () => {
       if (minZ === Infinity || maxZ === -Infinity) {
         throw new Error('Could not compute Z boundaries from CPTs.');
       }
-
-      const zCenter = (minZ + maxZ) / 2;
-
-      // Center reference line points
-      const centeredReferenceLine = rdPoints.map(pt => [pt.x - xCenter, pt.y - yCenter]);
+     
 
       // Project each CPT onto the reference line (original, to match coordinates)
       const soilProfilesPayload = uploadedCpts.map((cpt) => {
-        const prof = cpt.soil_profile;
-        const proj = projectPointToPolyline({ x: prof.x, y: prof.y }, rdPoints);
+        const prof = cpt.soil_profile;        
         return {
-          x: proj.chainage,
-          y: 0.0,
+          x: prof.x,
+          y: prof.y,
           soil_layers: (prof.soil_layers || []).map((layer) => ({
-            top: layer.top - zCenter,
-            bottom: layer.bottom - zCenter,
+            top: layer.top,
+            bottom: layer.bottom,
             soil_code: layer.soil_code
           }))
         };
       });
 
+      console.log('Reference line:', rdPoints);
+
       // Construct the 2D API payload
       const payload = {
         soil_profiles: soilProfilesPayload,
-        x_min: 0,
-        x_max: Math.round(totalChainage),
         dx: 5.0,
-        z_min: Math.round(minZ - zCenter),
-        z_max: Math.round(maxZ - zCenter),
+        z_min: Math.round(minZ),
+        z_max: Math.round(maxZ),
         dz: 0.25,
         anisotropy_ratio: 50,
         step_size: 0.5,
         reference_line: {
-          points: centeredReferenceLine
+          points: rdPoints.map(p => [p.x, p.y])
         },
-        soil_colors: soilColors
+        soil_colors: soilColors,
+        deterministic: settingDeterministic ? settingDeterministic.checked : false
       };
 
       console.log('Sending 2D GLB export request payload:', payload);
@@ -2663,13 +2639,19 @@ btnSaveProject.addEventListener('click', () => {
       }
     }
 
+    let deterministic = false;
+    if (settingDeterministic) {
+      deterministic = settingDeterministic.checked;
+    }
+
     const projectData = {
       version: '1.0.0',
       uploadedCpts,
       uploadedFilenames: Array.from(uploadedFilenames),
       settings: {
         maxDistance,
-        minLayerheight
+        minLayerheight,
+        deterministic
       },
       drawing,
       soilColors
@@ -2743,6 +2725,9 @@ fileInputProject.addEventListener('change', async (e: Event) => {
       }
       if (typeof projectData.settings.minLayerheight === 'number' && settingMinLayerheight) {
         settingMinLayerheight.value = String(projectData.settings.minLayerheight);
+      }
+      if (typeof projectData.settings.deterministic === 'boolean' && settingDeterministic) {
+        settingDeterministic.checked = projectData.settings.deterministic;
       }
     }
 
@@ -2856,6 +2841,9 @@ btnNewProject.addEventListener('click', () => {
     // 4. Reset max distance settings input
     if (settingMaxDistance) {
       settingMaxDistance.value = '20';
+    }
+    if (settingDeterministic) {
+      settingDeterministic.checked = false;
     }
 
     // 5. Reset upload badges
