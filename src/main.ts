@@ -1464,7 +1464,7 @@ btnGenerateVoxel.addEventListener('click', async () => {
         };
       });
 
-      console.log('Reference line:', rdPoints);
+      //console.log('Reference line:', rdPoints);
 
       // Construct the 2D API payload
       const payload = {
@@ -1482,7 +1482,7 @@ btnGenerateVoxel.addEventListener('click', async () => {
         deterministic: settingDeterministic ? settingDeterministic.checked : false
       };
 
-      console.log('Sending 2D GLB export request payload:', payload);
+      //console.log('Sending 2D GLB export request payload:', payload);
 
       // API Request
       response = await fetch(`${API_URL}/api/voxels/export/glb/2d`, {
@@ -1928,7 +1928,7 @@ btnDownloadBro.addEventListener('click', async () => {
       }
     }
 
-    console.log('RD points:', rdPoints);
+    //console.log('RD points:', rdPoints);
 
     // 2. Fetch CPT and Borehole metadata along the polyline from BRO
     let characteristics = [];
@@ -2215,7 +2215,7 @@ voxelModelViewer.addEventListener('load', () => {
   // Sort layers alphabetically
   layers.sort((a, b) => a.name.localeCompare(b.name));
 
-  console.log('GLB model loaded. Found layers:', layers.map(l => l.name));
+  //console.log('GLB model loaded. Found layers:', layers.map(l => l.name));
 
   if (layers.length > 0) {
     // Show the panel
