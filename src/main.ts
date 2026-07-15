@@ -55,6 +55,37 @@ const defaultSoilColors: Record<string, string> = {
 
 let soilColors = { ...defaultSoilColors };
 
+let soilSynonyms: Record<string, string> = {};
+
+function resolveSoilCode(code: string): string {
+  let current = code;
+  const visited = new Set<string>();
+  while (soilSynonyms[current] && !visited.has(current)) {
+    visited.add(current);
+    current = soilSynonyms[current];
+  }
+  return current;
+}
+
+function getSoilDisplayNameForNode(code: string): string {
+  const resolved = resolveSoilCode(code);
+  if (resolved !== code) {
+    return `${resolved.replace(/_/g, ' ')} (${code.replace(/_/g, ' ')})`;
+  } else {
+    const synonyms: string[] = [];
+    Object.entries(soilSynonyms).forEach(([syn, master]) => {
+      if (resolveSoilCode(syn) === code) {
+        synonyms.push(syn.replace(/_/g, ' '));
+      }
+    });
+    const displayName = code.replace(/_/g, ' ');
+    if (synonyms.length > 0) {
+      return `${displayName} (${synonyms.join(', ')})`;
+    }
+    return displayName;
+  }
+}
+
 // Drawing State & Variables
 type DrawingMode = 'view' | 'draw-rect' | 'draw-line';
 let currentMode: DrawingMode = 'view';
@@ -109,6 +140,13 @@ const inputNewSoilColor = document.getElementById('input-new-soil-color') as HTM
 const btnAddSoilType = document.getElementById('btn-add-soil-type') as HTMLButtonElement;
 const soilsList = document.getElementById('soils-list') as HTMLDivElement;
 const optionUploadShp = document.getElementById('option-upload-shp') as HTMLLIElement;
+
+// Grab Soil Categories elements
+const optionSoilCategories = document.getElementById('option-soil-categories') as HTMLLIElement;
+const soilCategoriesOverlay = document.getElementById('soil-categories-overlay') as HTMLDivElement;
+const btnCloseSoilCategories = document.getElementById('btn-close-soil-categories') as HTMLButtonElement;
+const categoriesSourceList = document.getElementById('categories-source-list') as HTMLDivElement;
+const categoriesTargetsList = document.getElementById('categories-targets-list') as HTMLDivElement;
 const fileInputShp = document.getElementById('file-input-shp') as HTMLInputElement;
 const uploadShpBadge = document.getElementById('upload-shp-badge') as HTMLSpanElement;
 
@@ -712,10 +750,13 @@ function bindDefaultCptPopup(cpt: CptData, marker: L.Marker) {
   layers.forEach((layer) => {
     const thickness = layer.top - layer.bottom;
     const heightPercent = totalThickness > 0 ? (thickness / totalThickness) * 100 : 0;
-    const color = soilColors[layer.soil_code] || '#808080';
+    const resolvedCode = resolveSoilCode(layer.soil_code);
+    const color = soilColors[resolvedCode] || '#808080';
 
-    legendItemsMap[layer.soil_code] = color;
-    const displayName = layer.soil_code.replace(/_/g, ' ');
+    legendItemsMap[resolvedCode] = color;
+    const displayName = resolvedCode === layer.soil_code 
+      ? layer.soil_code.replace(/_/g, ' ') 
+      : `${resolvedCode.replace(/_/g, ' ')} (${layer.soil_code.replace(/_/g, ' ')})`;
 
     segmentsHtml += `
       <div 
@@ -934,7 +975,8 @@ function openCptEditor(cpt: CptData, marker: L.Marker) {
     draftLayers.forEach((layer: any, idx: number) => {
       const topPct = ((absoluteTop - layer.top) / totalHeight) * 100;
       const heightPct = ((layer.top - layer.bottom) / totalHeight) * 100;
-      const color = soilColors[layer.soil_code] || '#808080';
+      const resolvedCode = resolveSoilCode(layer.soil_code);
+      const color = soilColors[resolvedCode] || '#808080';
 
       segmentsHtml += `
         <div 
@@ -946,7 +988,11 @@ function openCptEditor(cpt: CptData, marker: L.Marker) {
 
       let selectOptions = '';
       Object.keys(soilColors).forEach((code) => {
-        selectOptions += `<option value="${code}" ${code === layer.soil_code ? 'selected' : ''}>${code.replace(/_/g, ' ')}</option>`;
+        const resolved = resolveSoilCode(code);
+        const displayName = resolved === code
+          ? code.replace(/_/g, ' ')
+          : `${resolved.replace(/_/g, ' ')} (${code.replace(/_/g, ' ')})`;
+        selectOptions += `<option value="${code}" ${code === layer.soil_code ? 'selected' : ''}>${displayName}</option>`;
       });
 
       listRowsHtml += `
@@ -1058,7 +1104,8 @@ function openCptEditor(cpt: CptData, marker: L.Marker) {
 
         const segment = vizContainer.querySelector(`.cpt-edit-layer-segment[data-layer-index="${idx}"]`) as HTMLElement;
         if (segment) {
-          segment.style.backgroundColor = soilColors[newCode] || '#808080';
+          const resolvedNew = resolveSoilCode(newCode);
+          segment.style.backgroundColor = soilColors[resolvedNew] || '#808080';
         }
       });
     });
@@ -1083,7 +1130,8 @@ function openCptEditor(cpt: CptData, marker: L.Marker) {
 
         const segment = vizContainer.querySelector(`.cpt-edit-layer-segment[data-layer-index="${idx}"]`) as HTMLElement;
         if (segment) {
-          segment.style.backgroundColor = soilColors[draftLayers[idx].soil_code] || '#808080';
+          const resolvedReset = resolveSoilCode(draftLayers[idx].soil_code);
+          segment.style.backgroundColor = soilColors[resolvedReset] || '#808080';
         }
       });
     });
@@ -1164,7 +1212,14 @@ function updateVoxelLegendColors() {
     if (name) {
       const colorIndicator = item.querySelector('.layer-color-indicator') as HTMLDivElement;
       if (colorIndicator) {
-        colorIndicator.style.backgroundColor = soilColors[name] || '#808080';
+        const resolvedCode = resolveSoilCode(name);
+        colorIndicator.style.backgroundColor = soilColors[resolvedCode] || '#808080';
+      }
+      const labelText = item.querySelector('.layer-label') as HTMLSpanElement;
+      if (labelText) {
+        const displayName = getSoilDisplayNameForNode(name);
+        labelText.textContent = displayName;
+        labelText.title = displayName;
       }
     }
   });
@@ -1395,9 +1450,16 @@ btnGenerateVoxel.addEventListener('click', async () => {
           soil_layers: (prof.soil_layers || []).map((layer) => ({
             top: layer.top,
             bottom: layer.bottom,
-            soil_code: layer.soil_code
+            soil_code: resolveSoilCode(layer.soil_code)
           }))
         };
+      });
+
+      const filteredSoilColors: Record<string, string> = {};
+      Object.entries(soilColors).forEach(([key, color]) => {
+        if (!soilSynonyms[key]) {
+          filteredSoilColors[key] = color;
+        }
       });
 
       // 6. Construct the API payload
@@ -1414,7 +1476,7 @@ btnGenerateVoxel.addEventListener('click', async () => {
         dz: 1.0,
         anisotropy_ratio: 50,
         step_size: 0.5,
-        soil_colors: soilColors,
+        soil_colors: filteredSoilColors,
         deterministic: settingDeterministic ? settingDeterministic.checked : false
       };
 
@@ -1459,9 +1521,16 @@ btnGenerateVoxel.addEventListener('click', async () => {
           soil_layers: (prof.soil_layers || []).map((layer) => ({
             top: layer.top,
             bottom: layer.bottom,
-            soil_code: layer.soil_code
+            soil_code: resolveSoilCode(layer.soil_code)
           }))
         };
+      });
+
+      const filteredSoilColors: Record<string, string> = {};
+      Object.entries(soilColors).forEach(([key, color]) => {
+        if (!soilSynonyms[key]) {
+          filteredSoilColors[key] = color;
+        }
       });
 
       //console.log('Reference line:', rdPoints);
@@ -1478,7 +1547,7 @@ btnGenerateVoxel.addEventListener('click', async () => {
         reference_line: {
           points: rdPoints.map(p => [p.x, p.y])
         },
-        soil_colors: soilColors,
+        soil_colors: filteredSoilColors,
         deterministic: settingDeterministic ? settingDeterministic.checked : false
       };
 
@@ -1726,8 +1795,11 @@ function render2dProfile() {
     layers.forEach(layer => {
       const segmentTopPercent = ((topZ - layer.top) / heightZ) * 100;
       const segmentHeightPercent = ((layer.top - layer.bottom) / heightZ) * 100;
-      const color = soilColors[layer.soil_code] || '#808080';
-      const displayName = layer.soil_code.replace(/_/g, ' ');
+      const resolvedCode = resolveSoilCode(layer.soil_code);
+      const color = soilColors[resolvedCode] || '#808080';
+      const displayName = resolvedCode === layer.soil_code 
+        ? layer.soil_code.replace(/_/g, ' ') 
+        : `${resolvedCode.replace(/_/g, ' ')} (${layer.soil_code.replace(/_/g, ' ')})`;
 
       const segEl = document.createElement('div');
       segEl.style.position = 'absolute';
@@ -1826,7 +1898,7 @@ function render2dProfile() {
   projectedCpts.forEach(({ cpt }) => {
     const layers = cpt.soil_profile?.soil_layers || [];
     layers.forEach(layer => {
-      presentSoilCodes.add(layer.soil_code);
+      presentSoilCodes.add(resolveSoilCode(layer.soil_code));
     });
   });
 
@@ -1937,7 +2009,7 @@ btnDownloadBro.addEventListener('click', async () => {
       }
     }
 
-    //console.log('RD points:', rdPoints);
+    console.log('RD points:', rdPoints);
 
     // 2. Fetch CPT and Borehole metadata along the polyline from BRO
     let characteristics = [];
@@ -2233,8 +2305,9 @@ voxelModelViewer.addEventListener('load', () => {
     // Create a checkbox for each layer
     layers.forEach(({ name, node }) => {
       // Find the color from our active color map (defaulting to general soilColors)
-      const color = soilColors[name] || '#808080';
-      const displayName = name.replace(/_/g, ' ');
+      const resolvedCode = resolveSoilCode(name);
+      const color = soilColors[resolvedCode] || '#808080';
+      const displayName = getSoilDisplayNameForNode(name);
 
       const itemEl = document.createElement('label');
       itemEl.className = 'layer-item';
@@ -2663,7 +2736,8 @@ btnSaveProject.addEventListener('click', () => {
         deterministic
       },
       drawing,
-      soilColors
+      soilColors,
+      soilSynonyms
     };
 
     const jsonStr = JSON.stringify(projectData, null, 2);
@@ -2722,12 +2796,17 @@ fileInputProject.addEventListener('change', async (e: Event) => {
     // 2. Re-populate files and settings
     if (projectData.soilColors) {
       soilColors = { ...projectData.soilColors };
-      updateVoxelLegendColors();
       // Refresh soils maintenance modal list if it's currently open
       if (soilMaintenanceOverlay && soilMaintenanceOverlay.classList.contains('active')) {
         renderSoilsList();
       }
     }
+    if (projectData.soilSynonyms) {
+      soilSynonyms = { ...projectData.soilSynonyms };
+    } else {
+      soilSynonyms = {};
+    }
+    updateVoxelLegendColors();
     if (projectData.settings) {
       if (typeof projectData.settings.maxDistance === 'number' && settingMaxDistance) {
         settingMaxDistance.value = String(projectData.settings.maxDistance);
@@ -2978,6 +3057,12 @@ function renderSoilsList() {
       deleteBtn.addEventListener('click', () => {
         if (confirm(`Are you sure you want to delete the soil type "${displayName}"?`)) {
           delete soilColors[key];
+          delete soilSynonyms[key];
+          Object.entries(soilSynonyms).forEach(([syn, mast]) => {
+            if (mast === key) {
+              delete soilSynonyms[syn];
+            }
+          });
           renderSoilsList();
           rebuildCptMarkerPopups();
           updateVoxelLegendColors();
@@ -3045,5 +3130,147 @@ soilMaintenanceOverlay.addEventListener('click', (e: MouseEvent) => {
     soilMaintenanceOverlay.classList.remove('active');
   }
 });
+
+// Categories Modal Open/Close listeners
+optionSoilCategories.addEventListener('click', () => {
+  renderCategoriesModal();
+  soilCategoriesOverlay.classList.add('active');
+  menuOverlay.classList.remove('active');
+});
+
+btnCloseSoilCategories.addEventListener('click', () => {
+  soilCategoriesOverlay.classList.remove('active');
+});
+
+soilCategoriesOverlay.addEventListener('click', (e: MouseEvent) => {
+  if (e.target === soilCategoriesOverlay) {
+    soilCategoriesOverlay.classList.remove('active');
+  }
+});
+
+// Render dynamic Soil Categories in modal
+function renderCategoriesModal() {
+  if (!categoriesSourceList || !categoriesTargetsList) return;
+
+  // Clear lists
+  categoriesSourceList.innerHTML = '';
+  categoriesTargetsList.innerHTML = '';
+
+  // 1. Render all possible soiltypes on the left as draggable items (excluding categorized synonym soil types)
+  Object.entries(soilColors).forEach(([key, color]) => {
+    if (soilSynonyms[key]) return;
+
+    const displayName = key.replace(/_/g, ' ');
+    
+    const dragItem = document.createElement('div');
+    dragItem.className = 'category-drag-item';
+    dragItem.draggable = true;
+    dragItem.innerHTML = `
+      <span class="color-dot" style="background-color: ${color}"></span>
+      <span>${displayName}</span>
+    `;
+
+    dragItem.addEventListener('dragstart', (e) => {
+      e.dataTransfer?.setData('text/plain', key);
+    });
+
+    categoriesSourceList.appendChild(dragItem);
+  });
+
+  // 2. Render target blocks on the right for each master soil type (i.e. not mapped to another synonym)
+  Object.entries(soilColors).forEach(([key, color]) => {
+    if (soilSynonyms[key]) return;
+
+    const displayName = key.replace(/_/g, ' ');
+
+    // Find synonyms currently mapped to this master soil type
+    const synonyms = Object.entries(soilSynonyms)
+      .filter(([_, master]) => master === key)
+      .map(([synonymCode, _]) => synonymCode);
+
+    let synonymsHtml = '';
+    synonyms.forEach((synonymCode) => {
+      const synDisplayName = synonymCode.replace(/_/g, ' ');
+      synonymsHtml += `
+        <div class="synonym-tag" data-synonym="${synonymCode}">
+          <span>${synDisplayName}</span>
+          <button class="btn-remove-synonym" title="Remove synonym">&times;</button>
+        </div>
+      `;
+    });
+
+    const targetBlock = document.createElement('div');
+    targetBlock.className = 'category-target-block';
+    targetBlock.innerHTML = `
+      <div class="target-block-header">
+        <span class="color-dot" style="background-color: ${color}"></span>
+        <span>${displayName}</span>
+      </div>
+      <div class="target-dropzone" data-key="${key}">
+        ${synonyms.length === 0 ? '<span style="color: rgba(255,255,255,0.2); font-size: 0.8rem; pointer-events: none;">Drag soils here...</span>' : synonymsHtml}
+      </div>
+    `;
+
+    // Dropzone event listeners
+    const dropzone = targetBlock.querySelector('.target-dropzone') as HTMLDivElement;
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('drag-over');
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('drag-over');
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('drag-over');
+      const draggedKey = e.dataTransfer?.getData('text/plain');
+      const targetKey = dropzone.getAttribute('data-key');
+      
+      if (draggedKey && targetKey && draggedKey !== targetKey) {
+        // Map draggedKey's master to targetKey
+        soilSynonyms[draggedKey] = targetKey;
+        
+        // Remove draggedKey from being a master to other synonyms to keep hierarchy flat
+        Object.entries(soilSynonyms).forEach(([syn, mast]) => {
+          if (mast === draggedKey) {
+            soilSynonyms[syn] = targetKey;
+          }
+        });
+
+        // Re-render and update UI views
+        renderCategoriesModal();
+        updateAllAfterSynonymsChange();
+      }
+    });
+
+    // Remove synonym button listeners
+    const removeBtns = targetBlock.querySelectorAll('.btn-remove-synonym');
+    removeBtns.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const tag = (e.target as HTMLElement).closest('.synonym-tag');
+        if (tag) {
+          const synonymCode = tag.getAttribute('data-synonym');
+          if (synonymCode) {
+            delete soilSynonyms[synonymCode];
+            renderCategoriesModal();
+            updateAllAfterSynonymsChange();
+          }
+        }
+      });
+    });
+
+    categoriesTargetsList.appendChild(targetBlock);
+  });
+}
+
+function updateAllAfterSynonymsChange() {
+  rebuildCptMarkerPopups();
+  updateVoxelLegendColors();
+  if (profile2dView.style.display === 'flex') {
+    render2dProfile();
+  }
+}
 
 
