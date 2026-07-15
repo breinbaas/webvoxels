@@ -642,12 +642,12 @@ fileInputShp.addEventListener('change', async () => {
   uploadShpBadge.classList.add('uploading-badge-active');
 
   const reader = new FileReader();
-  
+
   reader.onload = (e) => {
     try {
       const buffer = e.target?.result as ArrayBuffer;
       const points = parseShpPolyline(buffer);
-      
+
       if (points.length < 2) {
         alert("The uploaded shapefile does not contain enough polyline coordinates (at least 2 distinct points are required).");
         return;
@@ -656,7 +656,7 @@ fileInputShp.addEventListener('change', async () => {
       clearDrawing();
 
       polylinePoints = points.map(p => L.latLng(p.lat, p.lng));
-      
+
       const line = L.polyline(polylinePoints, {
         color: '#a855f7',
         weight: 3
@@ -713,7 +713,7 @@ function bindDefaultCptPopup(cpt: CptData, marker: L.Marker) {
     const thickness = layer.top - layer.bottom;
     const heightPercent = totalThickness > 0 ? (thickness / totalThickness) * 100 : 0;
     const color = soilColors[layer.soil_code] || '#808080';
-    
+
     legendItemsMap[layer.soil_code] = color;
     const displayName = layer.soil_code.replace(/_/g, ' ');
 
@@ -1448,11 +1448,11 @@ btnGenerateVoxel.addEventListener('click', async () => {
       if (minZ === Infinity || maxZ === -Infinity) {
         throw new Error('Could not compute Z boundaries from CPTs.');
       }
-     
+
 
       // Project each CPT onto the reference line (original, to match coordinates)
       const soilProfilesPayload = uploadedCpts.map((cpt) => {
-        const prof = cpt.soil_profile;        
+        const prof = cpt.soil_profile;
         return {
           x: prof.x,
           y: prof.y,
@@ -1469,7 +1469,7 @@ btnGenerateVoxel.addEventListener('click', async () => {
       // Construct the 2D API payload
       const payload = {
         soil_profiles: soilProfilesPayload,
-        dx: 5.0,
+        dx: 1.0,
         z_min: Math.round(minZ),
         z_max: Math.round(maxZ),
         dz: 0.25,
@@ -1483,6 +1483,15 @@ btnGenerateVoxel.addEventListener('click', async () => {
       };
 
       //console.log('Sending 2D GLB export request payload:', payload);
+
+      // write to file waverdijk
+      // const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      // const url = URL.createObjectURL(blob);
+      // const a = document.createElement('a');
+      // a.href = url;
+      // a.download = 'waverdijk.json';
+      // a.click();
+
 
       // API Request
       response = await fetch(`${API_URL}/api/voxels/export/glb/2d`, {
@@ -1502,12 +1511,12 @@ btnGenerateVoxel.addEventListener('click', async () => {
     }
 
     const blob = await response.blob();
-    
+
     // Revoke previous URL if any to prevent memory leak
     if (voxelModelViewer.src) {
       URL.revokeObjectURL(voxelModelViewer.src);
     }
-    
+
     const modelUrl = URL.createObjectURL(blob);
 
     // Update model viewer source
@@ -1855,7 +1864,7 @@ function resetSplitHeights() {
 //   resetSplitHeights();
 //   viewerLayersPanel.classList.remove('active');
 //   viewerLayersList.innerHTML = '';
-  
+
 //   if (voxelModelViewer.src) {
 //     URL.revokeObjectURL(voxelModelViewer.src);
 //     voxelModelViewer.removeAttribute('src');
@@ -1866,7 +1875,7 @@ function resetSplitHeights() {
 //   voxelModelViewer.style.display = 'block';
 //   btnResetView.style.display = 'block';
 //   btnDownloadGlb.style.display = 'block';
-  
+
 //   setTimeout(() => {
 //     map.invalidateSize();
 //   }, 500);
@@ -2419,7 +2428,7 @@ map.on('click', (e: L.LeafletMouseEvent) => {
 // Map Event Handler: contextmenu (Polyline Point Deletion)
 map.on('contextmenu', (e: L.LeafletMouseEvent) => {
   if (currentMode !== 'draw-line') return;
-  
+
   // Prevent system context menu
   e.originalEvent.preventDefault();
 
@@ -2660,13 +2669,13 @@ btnSaveProject.addEventListener('click', () => {
     const jsonStr = JSON.stringify(projectData, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    
+
     const a = document.createElement('a');
     a.href = url;
     a.download = `webvoxel-project-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
-    
+
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } catch (error: any) {
@@ -2701,12 +2710,12 @@ fileInputProject.addEventListener('change', async (e: Event) => {
 
     // 1. Reset state
     clearDrawing();
-    
+
     cptMarkerList.forEach(({ marker }) => {
       map.removeLayer(marker);
     });
     cptMarkerList.length = 0;
-    
+
     uploadedCpts.length = 0;
     uploadedFilenames.clear();
 
@@ -2749,7 +2758,7 @@ fileInputProject.addEventListener('change', async (e: Event) => {
       const dw = projectData.drawing;
       if (dw.type === 'polyline' && Array.isArray(dw.points)) {
         polylinePoints = dw.points.map((p: { lat: number; lng: number }) => L.latLng(p.lat, p.lng));
-        
+
         const line = L.polyline(polylinePoints, {
           color: '#a855f7',
           weight: 3
@@ -2792,7 +2801,7 @@ fileInputProject.addEventListener('change', async (e: Event) => {
         activeDrawingLayer = rect;
 
         btnClearDraw.disabled = false;
-        
+
         const selectedCptsCount = cptMarkerList.filter(({ marker }) => bounds.contains(marker.getLatLng())).length;
         if (selectedCptsCount > 0) {
           generateContainer.classList.add('active');
@@ -2827,13 +2836,13 @@ btnNewProject.addEventListener('click', () => {
   if (confirm('Are you sure you want to start a new project? This will clear all current CPTs and drawings.')) {
     // 1. Reset state & clear drawings
     clearDrawing();
-    
+
     // 2. Remove CPT markers from map
     cptMarkerList.forEach(({ marker }) => {
       map.removeLayer(marker);
     });
     cptMarkerList.length = 0;
-    
+
     // 3. Clear storage arrays/sets
     uploadedCpts.length = 0;
     uploadedFilenames.clear();
@@ -2865,7 +2874,7 @@ btnNewProject.addEventListener('click', () => {
     resetSplitHeights();
     viewerLayersPanel.classList.remove('active');
     viewerLayersList.innerHTML = '';
-    
+
     if (voxelModelViewer.src) {
       URL.revokeObjectURL(voxelModelViewer.src);
       voxelModelViewer.removeAttribute('src');
