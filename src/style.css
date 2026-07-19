@@ -1003,8 +1003,16 @@ html, body {
 }
 
 .layer-label {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-volume {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
   white-space: nowrap;
 }
 

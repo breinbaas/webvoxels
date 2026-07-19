@@ -57,6 +57,9 @@ let soilColors = { ...defaultSoilColors };
 
 let soilSynonyms: Record<string, string> = {};
 
+// Soil volumes (m3) per soil name, returned alongside the last generated 3D voxel model
+let currentVoxelVolumes: Record<string, number> = {};
+
 function resolveSoilCode(code: string): string {
   let current = code;
   const visited = new Set<string>();
@@ -188,6 +191,7 @@ const settingMaxDistance = document.getElementById('setting-max-distance') as HT
 const settingMinLayerheight = document.getElementById('setting-min-layerheight') as HTMLInputElement;
 const settingDownloadBoreholes = document.getElementById('setting-download-boreholes') as HTMLInputElement;
 const settingDeterministic = document.getElementById('setting-deterministic') as HTMLInputElement;
+const settingRemovePreexcavated = document.getElementById('setting-remove-preexcavated') as HTMLInputElement;
 const btnDownloadProfile = document.getElementById('btn-download-profile') as HTMLButtonElement;
 const profileAxisXTicks = document.getElementById('profile-axis-x-ticks') as HTMLDivElement;
 
@@ -754,8 +758,8 @@ function bindDefaultCptPopup(cpt: CptData, marker: L.Marker) {
     const color = soilColors[resolvedCode] || '#808080';
 
     legendItemsMap[resolvedCode] = color;
-    const displayName = resolvedCode === layer.soil_code 
-      ? layer.soil_code.replace(/_/g, ' ') 
+    const displayName = resolvedCode === layer.soil_code
+      ? layer.soil_code.replace(/_/g, ' ')
       : `${resolvedCode.replace(/_/g, ' ')} (${layer.soil_code.replace(/_/g, ' ')})`;
 
     segmentsHtml += `
@@ -1477,7 +1481,8 @@ btnGenerateVoxel.addEventListener('click', async () => {
         anisotropy_ratio: 50,
         step_size: 0.5,
         soil_colors: filteredSoilColors,
-        deterministic: settingDeterministic ? settingDeterministic.checked : false
+        deterministic: settingDeterministic ? settingDeterministic.checked : false,
+        remove_preexcavated: settingRemovePreexcavated ? settingRemovePreexcavated.checked : true
       };
 
       console.log('Sending 3D GLB export request payload:', payload);
@@ -1548,7 +1553,8 @@ btnGenerateVoxel.addEventListener('click', async () => {
           points: rdPoints.map(p => [p.x, p.y])
         },
         soil_colors: filteredSoilColors,
-        deterministic: settingDeterministic ? settingDeterministic.checked : false
+        deterministic: settingDeterministic ? settingDeterministic.checked : false,
+        remove_preexcavated: settingRemovePreexcavated ? settingRemovePreexcavated.checked : true
       };
 
       //console.log('Sending 2D GLB export request payload:', payload);
@@ -1579,14 +1585,33 @@ btnGenerateVoxel.addEventListener('click', async () => {
       throw new Error(`Server returned status ${response.status}. ${errText}`);
     }
 
-    const blob = await response.blob();
+    // Response is multipart/form-data with a "file" part (the GLB) and a
+    // "volumes" part (JSON mapping soil name to volume in m3).
+    const responseForm = await response.formData();
+
+    const filePart = responseForm.get('file');
+    if (!filePart || !(filePart instanceof Blob)) {
+      throw new Error('Response did not contain a "file" part.');
+    }
+
+    const volumesPart = responseForm.get('volumes');
+    let volumesData: Record<string, number> = {};
+    if (volumesPart) {
+      const volumesText = volumesPart instanceof Blob ? await volumesPart.text() : volumesPart;
+      try {
+        volumesData = JSON.parse(volumesText);
+      } catch (e) {
+        console.error('Failed to parse volumes JSON from response:', e);
+      }
+    }
+    currentVoxelVolumes = volumesData;
 
     // Revoke previous URL if any to prevent memory leak
     if (voxelModelViewer.src) {
       URL.revokeObjectURL(voxelModelViewer.src);
     }
 
-    const modelUrl = URL.createObjectURL(blob);
+    const modelUrl = URL.createObjectURL(filePart);
 
     // Update model viewer source
     voxelModelViewer.src = modelUrl;
@@ -1797,8 +1822,8 @@ function render2dProfile() {
       const segmentHeightPercent = ((layer.top - layer.bottom) / heightZ) * 100;
       const resolvedCode = resolveSoilCode(layer.soil_code);
       const color = soilColors[resolvedCode] || '#808080';
-      const displayName = resolvedCode === layer.soil_code 
-        ? layer.soil_code.replace(/_/g, ' ') 
+      const displayName = resolvedCode === layer.soil_code
+        ? layer.soil_code.replace(/_/g, ' ')
         : `${resolvedCode.replace(/_/g, ' ')} (${layer.soil_code.replace(/_/g, ' ')})`;
 
       const segEl = document.createElement('div');
@@ -2352,9 +2377,18 @@ voxelModelViewer.addEventListener('load', () => {
       labelText.textContent = displayName;
       labelText.title = displayName;
 
+      const volume = currentVoxelVolumes[name] ?? currentVoxelVolumes[resolvedCode] ?? currentVoxelVolumes[displayName];
+      const volumeText = document.createElement('span');
+      volumeText.className = 'layer-volume';
+      if (volume !== undefined) {
+        volumeText.textContent = `${volume.toFixed(0)} m³`;
+        volumeText.title = `${volume.toFixed(0)} m³`;
+      }
+
       itemEl.appendChild(checkbox);
       itemEl.appendChild(colorIndicator);
       itemEl.appendChild(labelText);
+      itemEl.appendChild(volumeText);
 
       viewerLayersList.appendChild(itemEl);
     });
@@ -2726,6 +2760,11 @@ btnSaveProject.addEventListener('click', () => {
       deterministic = settingDeterministic.checked;
     }
 
+    let removePreexcavated = true;
+    if (settingRemovePreexcavated) {
+      removePreexcavated = settingRemovePreexcavated.checked;
+    }
+
     const projectData = {
       version: '1.0.0',
       uploadedCpts,
@@ -2733,7 +2772,8 @@ btnSaveProject.addEventListener('click', () => {
       settings: {
         maxDistance,
         minLayerheight,
-        deterministic
+        deterministic,
+        removePreexcavated
       },
       drawing,
       soilColors,
@@ -2816,6 +2856,9 @@ fileInputProject.addEventListener('change', async (e: Event) => {
       }
       if (typeof projectData.settings.deterministic === 'boolean' && settingDeterministic) {
         settingDeterministic.checked = projectData.settings.deterministic;
+      }
+      if (typeof projectData.settings.removePreexcavated === 'boolean' && settingRemovePreexcavated) {
+        settingRemovePreexcavated.checked = projectData.settings.removePreexcavated;
       }
     }
 
@@ -3161,7 +3204,7 @@ function renderCategoriesModal() {
     if (soilSynonyms[key]) return;
 
     const displayName = key.replace(/_/g, ' ');
-    
+
     const dragItem = document.createElement('div');
     dragItem.className = 'category-drag-item';
     dragItem.draggable = true;
@@ -3227,11 +3270,11 @@ function renderCategoriesModal() {
       dropzone.classList.remove('drag-over');
       const draggedKey = e.dataTransfer?.getData('text/plain');
       const targetKey = dropzone.getAttribute('data-key');
-      
+
       if (draggedKey && targetKey && draggedKey !== targetKey) {
         // Map draggedKey's master to targetKey
         soilSynonyms[draggedKey] = targetKey;
-        
+
         // Remove draggedKey from being a master to other synonyms to keep hierarchy flat
         Object.entries(soilSynonyms).forEach(([syn, mast]) => {
           if (mast === draggedKey) {
