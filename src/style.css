@@ -958,6 +958,37 @@ html, body {
   color: #a5b4fc; /* Indigo-ish */
 }
 
+.risk-legend-key {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.risk-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.risk-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.risk-legend-swatch.risk-safe {
+  background-color: #22c55e;
+}
+
+.risk-legend-swatch.risk-danger {
+  background-color: #ef4444;
+}
+
 .layers-list {
   overflow-y: auto;
   flex-grow: 1;

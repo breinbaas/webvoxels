@@ -61,6 +61,9 @@ let soilSynonyms: Record<string, string> = {};
 // Soil volumes (m3) per soil name, returned alongside the last generated 3D voxel model
 let currentVoxelVolumes: Record<string, number> = {};
 
+// Whether the currently displayed voxel model was generated with the risk (distance_filter) payload
+let isRiskModelActive = false;
+
 function resolveSoilCode(code: string): string {
   let current = code;
   const visited = new Set<string>();
@@ -153,6 +156,9 @@ const categoriesSourceList = document.getElementById('categories-source-list') a
 const categoriesTargetsList = document.getElementById('categories-targets-list') as HTMLDivElement;
 const fileInputShp = document.getElementById('file-input-shp') as HTMLInputElement;
 const uploadShpBadge = document.getElementById('upload-shp-badge') as HTMLSpanElement;
+const optionUploadCsvPolyline = document.getElementById('option-upload-csv-polyline') as HTMLLIElement;
+const fileInputCsvPolyline = document.getElementById('file-input-csv-polyline') as HTMLInputElement;
+const uploadCsvPolylineBadge = document.getElementById('upload-csv-polyline-badge') as HTMLSpanElement;
 
 // Grab drawing elements
 const btnDrawRect = document.getElementById('btn-draw-rect') as HTMLButtonElement;
@@ -161,6 +167,7 @@ const btnClearDraw = document.getElementById('btn-clear-draw') as HTMLButtonElem
 const drawingInstructions = document.getElementById('drawing-instructions') as HTMLDivElement;
 const generateContainer = document.getElementById('generate-container') as HTMLDivElement;
 const btnGenerateVoxel = document.getElementById('btn-generate-voxel') as HTMLButtonElement;
+const btnGenerateRisk = document.getElementById('btn-generate-risk') as HTMLButtonElement;
 const btnGenerate2d = document.getElementById('btn-generate-2d') as HTMLButtonElement;
 const btnDownloadBro = document.getElementById('btn-download-bro') as HTMLButtonElement;
 const btnSaveProject = document.getElementById('btn-save-project') as HTMLButtonElement;
@@ -180,6 +187,7 @@ const btnDownloadGlb = document.getElementById('btn-download-glb') as HTMLButton
 const btnResetView = document.getElementById('btn-reset-view') as HTMLButtonElement;
 const viewerLayersPanel = document.getElementById('viewer-layers-panel') as HTMLDivElement;
 const viewerLayersList = document.getElementById('viewer-layers-list') as HTMLDivElement;
+const riskLegendKey = document.getElementById('risk-legend-key') as HTMLDivElement;
 const loadingOverlay = document.getElementById('loading-overlay') as HTMLDivElement;
 const loaderText = document.getElementById('loader-text') as HTMLDivElement;
 
@@ -555,8 +563,13 @@ optionUploadShp.addEventListener('click', () => {
   fileInputShp.click();
 });
 
+// Click listener to trigger CSV polyline input
+optionUploadCsvPolyline.addEventListener('click', () => {
+  fileInputCsvPolyline.click();
+});
+
 // Helper function to parse binary ESRI Shapefile coordinates
-function parseShpPolyline(arrayBuffer: ArrayBuffer): { lat: number; lng: number }[] {
+function parseShpPolyline(arrayBuffer: ArrayBuffer): { lat: number; lng: number; alt?: number }[] {
   const view = new DataView(arrayBuffer);
   if (arrayBuffer.byteLength < 100) {
     throw new Error("Invalid shapefile (too short)");
@@ -576,7 +589,7 @@ function parseShpPolyline(arrayBuffer: ArrayBuffer): { lat: number; lng: number 
   }
 
   let offset = 100;
-  const points: { lat: number; lng: number }[] = [];
+  const points: { lat: number; lng: number; alt?: number }[] = [];
 
   while (offset < arrayBuffer.byteLength) {
     if (offset + 8 > arrayBuffer.byteLength) break;
@@ -608,10 +621,23 @@ function parseShpPolyline(arrayBuffer: ArrayBuffer): { lat: number; lng: number 
         continue;
       }
 
+      // PolyLineZ (13) / PolygonZ (15) store a Zmin/Zmax pair followed by a
+      // Z value per point right after the X/Y points array.
+      let zArrayOffset = -1;
+      if (shapeType === 13 || shapeType === 15) {
+        const zValuesOffset = pointsOffset + numPoints * 16 + 16;
+        if (zValuesOffset + numPoints * 8 <= recordEnd) {
+          zArrayOffset = zValuesOffset;
+        } else {
+          console.warn(`Record ${recordNumber} Z array exceeds record boundaries; ignoring Z values.`);
+        }
+      }
+
       for (let i = 0; i < numPoints; i++) {
         const ptOffset = pointsOffset + i * 16;
         const x = view.getFloat64(ptOffset, true);
         const y = view.getFloat64(ptOffset + 8, true);
+        const alt = zArrayOffset >= 0 ? view.getFloat64(zArrayOffset + i * 8, true) : undefined;
 
         let lat: number, lng: number;
         if (x > 1000 && y > 1000) {
@@ -625,18 +651,30 @@ function parseShpPolyline(arrayBuffer: ArrayBuffer): { lat: number; lng: number 
 
         // Avoid adding consecutive duplicate points
         if (points.length === 0) {
-          points.push({ lat, lng });
+          points.push({ lat, lng, alt });
         } else {
           const prev = points[points.length - 1];
           const distSq = Math.pow(lat - prev.lat, 2) + Math.pow(lng - prev.lng, 2);
           if (distSq > 1e-12) {
-            points.push({ lat, lng });
+            points.push({ lat, lng, alt });
           }
         }
       }
     }
 
     offset = recordEnd;
+  }
+
+  // Polygon/PolygonZ rings repeat the first vertex as the last one to close
+  // the ring. Drop that duplicate so the map doesn't render a closing segment
+  // back to the start of what should just be a reference line.
+  if ((headerShapeType === 5 || headerShapeType === 15) && points.length > 2) {
+    const first = points[0];
+    const last = points[points.length - 1];
+    const distSq = Math.pow(last.lat - first.lat, 2) + Math.pow(last.lng - first.lng, 2);
+    if (distSq <= 1e-12) {
+      points.pop();
+    }
   }
 
   return points;
@@ -698,7 +736,7 @@ fileInputShp.addEventListener('change', async () => {
 
       clearDrawing();
 
-      polylinePoints = points.map(p => L.latLng(p.lat, p.lng));
+      polylinePoints = points.map(p => L.latLng(p.lat, p.lng, p.alt));
 
       const line = L.polyline(polylinePoints, {
         color: '#a855f7',
@@ -739,6 +777,134 @@ fileInputShp.addEventListener('change', async () => {
   };
 
   reader.readAsArrayBuffer(shpFile);
+});
+
+// Helper function to parse a CSV polyline file with an x,y,z (EPSG:28992) header
+function parseCsvPolyline(text: string): { lat: number; lng: number; alt?: number }[] {
+  const lines = text.split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length < 2) {
+    throw new Error("The CSV file must contain a header row and at least one data row.");
+  }
+
+  const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+  const xIdx = header.indexOf('x');
+  const yIdx = header.indexOf('y');
+  const zIdx = header.indexOf('z');
+
+  if (xIdx === -1 || yIdx === -1) {
+    throw new Error("The CSV header must contain 'x' and 'y' columns (optionally 'z').");
+  }
+
+  const points: { lat: number; lng: number; alt?: number }[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(c => c.trim());
+    const x = parseFloat(cols[xIdx]);
+    const y = parseFloat(cols[yIdx]);
+    if (isNaN(x) || isNaN(y)) {
+      continue;
+    }
+    const z = zIdx !== -1 ? parseFloat(cols[zIdx]) : NaN;
+    const alt = isNaN(z) ? undefined : z;
+
+    const wgs = rdToWgs84(x, y);
+    const lat = wgs.lat;
+    const lng = wgs.lng;
+
+    // Avoid adding consecutive duplicate points
+    if (points.length === 0) {
+      points.push({ lat, lng, alt });
+    } else {
+      const prev = points[points.length - 1];
+      const distSq = Math.pow(lat - prev.lat, 2) + Math.pow(lng - prev.lng, 2);
+      if (distSq > 1e-12) {
+        points.push({ lat, lng, alt });
+      }
+    }
+  }
+
+  // Some CSV exports (e.g. closed survey traverses) repeat the first point at
+  // the end. That duplicate is what makes the rendered polyline appear to
+  // close into a loop, so drop it - this file represents an open reference line.
+  if (points.length > 2) {
+    const first = points[0];
+    const last = points[points.length - 1];
+    const distSq = Math.pow(last.lat - first.lat, 2) + Math.pow(last.lng - first.lng, 2);
+    if (distSq <= 1e-12) {
+      points.pop();
+    }
+  }
+
+  return points;
+}
+
+// CSV Polyline Selection Handler
+fileInputCsvPolyline.addEventListener('change', () => {
+  const files = fileInputCsvPolyline.files;
+  if (!files || files.length === 0) return;
+
+  const csvFile = files[0];
+  fileInputCsvPolyline.value = '';
+
+  const originalBadgeText = uploadCsvPolylineBadge.textContent || 'Upload';
+  uploadCsvPolylineBadge.textContent = 'Uploading...';
+  uploadCsvPolylineBadge.classList.add('uploading-badge-active');
+
+  const reader = new FileReader();
+
+  reader.onload = (e) => {
+    try {
+      const text = e.target?.result as string;
+      const points = parseCsvPolyline(text);
+
+      if (points.length < 2) {
+        alert("The uploaded CSV file does not contain enough polyline coordinates (at least 2 distinct points are required).");
+        return;
+      }
+
+      clearDrawing();
+
+      polylinePoints = points.map(p => L.latLng(p.lat, p.lng, p.alt));
+
+      const line = L.polyline(polylinePoints, {
+        color: '#a855f7',
+        weight: 3
+      }).addTo(map);
+      activeDrawingLayer = line;
+
+      polylineMarkers = polylinePoints.map(latlng => {
+        return L.circleMarker(latlng, {
+          radius: 5,
+          color: '#a855f7',
+          fillColor: '#fff',
+          fillOpacity: 1,
+          weight: 2
+        }).addTo(map);
+      });
+
+      btnClearDraw.disabled = false;
+      generateContainer.classList.add('active');
+      btnGenerate2d.style.display = 'flex';
+      btnDownloadBro.style.display = 'flex';
+
+      const bounds = L.latLngBounds(polylinePoints);
+      map.fitBounds(bounds);
+    } catch (err: any) {
+      console.error("Error parsing CSV polyline:", err);
+      alert(`Failed to parse CSV file: ${err.message}`);
+    } finally {
+      uploadCsvPolylineBadge.textContent = originalBadgeText;
+      uploadCsvPolylineBadge.classList.remove('uploading-badge-active');
+    }
+  };
+
+  reader.onerror = () => {
+    alert("Failed to read the CSV file.");
+    uploadCsvPolylineBadge.textContent = originalBadgeText;
+    uploadCsvPolylineBadge.classList.remove('uploading-badge-active');
+  };
+
+  reader.readAsText(csvFile);
 });
 
 // Bind or rebuild the default view popup on a CPT/Borehole marker
@@ -1340,7 +1506,7 @@ btnClearDraw.addEventListener('click', () => {
   setDrawingMode('view');
 });
 
-btnGenerateVoxel.addEventListener('click', async () => {
+async function generateVoxelModel(riskMode: boolean) {
   if (uploadedCpts.length === 0) {
     alert('Please upload some CPT files first.');
     return;
@@ -1483,7 +1649,8 @@ btnGenerateVoxel.addEventListener('click', async () => {
         step_size: 0.5,
         soil_colors: filteredSoilColors,
         deterministic: settingDeterministic ? settingDeterministic.checked : false,
-        remove_preexcavated: settingRemovePreexcavated ? settingRemovePreexcavated.checked : true
+        remove_preexcavated: settingRemovePreexcavated ? settingRemovePreexcavated.checked : true,
+        ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
 
       console.log('Sending 3D GLB export request payload:', payload);
@@ -1500,8 +1667,8 @@ btnGenerateVoxel.addEventListener('click', async () => {
       });
     } else {
       // Polyline (2D) generation
-      // Convert points to RD coordinates
-      const rdPoints = polylinePoints.map(pt => wgs84ToRd(pt.lat, pt.lng));
+      // Convert points to RD coordinates, carrying over the Z value (if any)
+      const rdPoints = polylinePoints.map(pt => ({ ...wgs84ToRd(pt.lat, pt.lng), alt: pt.alt }));
 
       // Find Z boundaries from all uploaded CPTs
       let minZ = Infinity;
@@ -1551,11 +1718,12 @@ btnGenerateVoxel.addEventListener('click', async () => {
         anisotropy_ratio: 50,
         step_size: 0.5,
         reference_line: {
-          points: rdPoints.map(p => [p.x, p.y])
+          points: rdPoints.map(p => p.alt !== undefined ? [p.x, p.y, p.alt] : [p.x, p.y])
         },
         soil_colors: filteredSoilColors,
         deterministic: settingDeterministic ? settingDeterministic.checked : false,
-        remove_preexcavated: settingRemovePreexcavated ? settingRemovePreexcavated.checked : true
+        remove_preexcavated: settingRemovePreexcavated ? settingRemovePreexcavated.checked : true,
+        ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
 
       //console.log('Sending 2D GLB export request payload:', payload);
@@ -1606,6 +1774,7 @@ btnGenerateVoxel.addEventListener('click', async () => {
       }
     }
     currentVoxelVolumes = volumesData;
+    isRiskModelActive = riskMode;
 
     // Revoke previous URL if any to prevent memory leak
     if (voxelModelViewer.src) {
@@ -1632,7 +1801,10 @@ btnGenerateVoxel.addEventListener('click', async () => {
     // Hide loading overlay
     loadingOverlay.classList.remove('active');
   }
-});
+}
+
+btnGenerateVoxel.addEventListener('click', () => generateVoxelModel(false));
+btnGenerateRisk.addEventListener('click', () => generateVoxelModel(true));
 
 // Generate 2D View along Polyline click handler
 btnGenerate2d.addEventListener('click', () => {
@@ -1703,12 +1875,22 @@ function render2dProfile() {
   // Convert polyline to RD to calculate chainage
   const rdPoints = polylinePoints.map(pt => wgs84ToRd(pt.lat, pt.lng));
 
-  // Compute segments and total polyline length
+  // Compute segments, total polyline length, and (if every vertex carries a
+  // Z value, e.g. from a CSV/shapefile import) the chainage/Z pairs for the
+  // ground-level line.
+  const hasLineZ = polylinePoints.length >= 2 && polylinePoints.every(pt => pt.alt !== undefined);
+  const lineZPoints: { chainage: number; z: number }[] = hasLineZ
+    ? [{ chainage: 0, z: polylinePoints[0].alt as number }]
+    : [];
+
   let totalChainage = 0;
   for (let i = 1; i < rdPoints.length; i++) {
     const dx = rdPoints[i].x - rdPoints[i - 1].x;
     const dy = rdPoints[i].y - rdPoints[i - 1].y;
     totalChainage += Math.sqrt(dx * dx + dy * dy);
+    if (hasLineZ) {
+      lineZPoints.push({ chainage: totalChainage, z: polylinePoints[i].alt as number });
+    }
   }
 
   if (totalChainage === 0) {
@@ -1765,6 +1947,14 @@ function render2dProfile() {
 
   if (minZ === Infinity || maxZ === -Infinity) {
     return;
+  }
+
+  // Extend the range so the ground-level line (if any) isn't clipped
+  if (hasLineZ) {
+    lineZPoints.forEach(({ z }) => {
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    });
   }
 
   // Round maxZ up to nearest 5m, minZ down to nearest 5m
@@ -1870,6 +2060,42 @@ function render2dProfile() {
     profilePlotArea.appendChild(colEl);
   });
 
+  // Render the ground-level line (Z values carried by the active polyline)
+  if (hasLineZ && lineZPoints.length >= 2) {
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.style.position = 'absolute';
+    svg.style.inset = '0';
+    svg.style.width = '100%';
+    svg.style.height = '100%';
+    svg.style.pointerEvents = 'none';
+    svg.style.overflow = 'visible';
+
+    const pointsAttr = lineZPoints
+      .map(({ chainage, z }) => {
+        const x = 5 + (chainage / totalChainage) * 90;
+        const y = ((roundedMaxZ - z) / zRange) * 100;
+        return `${x},${y}`;
+      })
+      .join(' ');
+
+    const groundLineEl = document.createElementNS(svgNS, 'polyline');
+    groundLineEl.setAttribute('points', pointsAttr);
+    groundLineEl.setAttribute('fill', 'none');
+    groundLineEl.setAttribute('stroke', '#22c55e');
+    groundLineEl.setAttribute('stroke-width', '2');
+    groundLineEl.setAttribute('vector-effect', 'non-scaling-stroke');
+
+    const titleEl = document.createElementNS(svgNS, 'title');
+    titleEl.textContent = 'Ground level (Z)';
+    groundLineEl.appendChild(titleEl);
+
+    svg.appendChild(groundLineEl);
+    profilePlotArea.appendChild(svg);
+  }
+
   // Render X-axis ticks
   profileAxisXTicks.innerHTML = '';
   let step = 10;
@@ -1948,6 +2174,24 @@ function render2dProfile() {
     itemEl.appendChild(textEl);
     profileLegend.appendChild(itemEl);
   });
+
+  if (hasLineZ) {
+    const lineItemEl = document.createElement('div');
+    lineItemEl.className = 'legend-item';
+
+    const lineColorBox = document.createElement('div');
+    lineColorBox.className = 'legend-color-box';
+    lineColorBox.style.backgroundColor = '#22c55e';
+
+    const lineTextEl = document.createElement('div');
+    lineTextEl.className = 'legend-text';
+    lineTextEl.textContent = 'Ground level (Z)';
+    lineTextEl.title = 'Ground level (Z)';
+
+    lineItemEl.appendChild(lineColorBox);
+    lineItemEl.appendChild(lineTextEl);
+    profileLegend.appendChild(lineItemEl);
+  }
 }
 
 // Helper to reset custom split heights
@@ -2324,6 +2568,10 @@ voxelModelViewer.addEventListener('load', () => {
 
   //console.log('GLB model loaded. Found layers:', layers.map(l => l.name));
 
+  // Risk models are recolored server-side (green = safe, red = danger) instead
+  // of by soil type, so swap the per-soil legend for a fixed green/red key.
+  riskLegendKey.style.display = isRiskModelActive ? 'flex' : 'none';
+
   if (layers.length > 0) {
     // Show the panel
     viewerLayersPanel.classList.add('active');
@@ -2371,6 +2619,10 @@ voxelModelViewer.addEventListener('load', () => {
 
       const colorIndicator = document.createElement('div');
       colorIndicator.className = 'layer-color-indicator';
+      // In risk mode the mesh itself is colored green/red by distance, not by
+      // soil type, so the per-soil swatch would be misleading - hide it and
+      // rely on the fixed risk legend key shown above the list instead.
+      colorIndicator.style.display = isRiskModelActive ? 'none' : '';
       colorIndicator.style.backgroundColor = color;
 
       const labelText = document.createElement('span');
@@ -2735,7 +2987,7 @@ btnSaveProject.addEventListener('click', () => {
       } else if (activeDrawingLayer instanceof L.Polyline) {
         drawing = {
           type: 'polyline',
-          points: polylinePoints.map(pt => ({ lat: pt.lat, lng: pt.lng }))
+          points: polylinePoints.map(pt => ({ lat: pt.lat, lng: pt.lng, alt: pt.alt }))
         };
       }
     }
@@ -2880,7 +3132,7 @@ fileInputProject.addEventListener('change', async (e: Event) => {
     if (projectData.drawing) {
       const dw = projectData.drawing;
       if (dw.type === 'polyline' && Array.isArray(dw.points)) {
-        polylinePoints = dw.points.map((p: { lat: number; lng: number }) => L.latLng(p.lat, p.lng));
+        polylinePoints = dw.points.map((p: { lat: number; lng: number; alt?: number }) => L.latLng(p.lat, p.lng, p.alt));
 
         const line = L.polyline(polylinePoints, {
           color: '#a855f7',
@@ -2990,6 +3242,10 @@ btnNewProject.addEventListener('click', () => {
     if (uploadShpBadge) {
       uploadShpBadge.textContent = 'Upload';
       uploadShpBadge.classList.remove('uploading-badge-active');
+    }
+    if (uploadCsvPolylineBadge) {
+      uploadCsvPolylineBadge.textContent = 'Upload';
+      uploadCsvPolylineBadge.classList.remove('uploading-badge-active');
     }
 
     // 6. Reset Split View and close panels

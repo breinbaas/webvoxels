@@ -102,7 +102,7 @@
                 </div>
                 
                 <div class="menu-section">
-                  <h3>Shapefile Import</h3>
+                  <h3>Polyline Import</h3>
                   <ul class="menu-options">
                     <li class="menu-option" id="option-upload-shp">
                       <div class="option-info">
@@ -117,6 +117,20 @@
                         </div>
                       </div>
                       <span class="option-badge" id="upload-shp-badge">Upload</span>
+                    </li>
+                    <li class="menu-option" id="option-upload-csv-polyline">
+                      <div class="option-info">
+                        <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="17 8 12 3 7 8" />
+                          <line x1="12" x2="12" y1="3" y2="15" />
+                        </svg>
+                        <div class="option-text">
+                          <span class="option-title">Upload CSV Polyline</span>
+                          <span class="option-desc">Upload polyline points (.csv, header x,y,z, EPSG:28992)</span>
+                        </div>
+                      </div>
+                      <span class="option-badge" id="upload-csv-polyline-badge">Upload</span>
                     </li>
                   </ul>
                 </div>
@@ -317,6 +331,14 @@
               <polyline points="2 12 12 17 22 12" />
             </svg>
           </button>
+          <button id="btn-generate-risk" class="generate-btn">
+            <span>Generate Risk Model</span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </button>
           <button id="btn-generate-2d" class="generate-btn" style="display: none;">
             <span>Generate 2D View</span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -367,6 +389,16 @@
         <!-- Floating Layers Selector -->
         <div id="viewer-layers-panel" class="viewer-layers-panel">
           <div class="panel-header">Voxel Layers</div>
+          <div id="risk-legend-key" class="risk-legend-key" style="display: none;">
+            <div class="risk-legend-item">
+              <span class="risk-legend-swatch risk-safe"></span>
+              <span>Safe</span>
+            </div>
+            <div class="risk-legend-item">
+              <span class="risk-legend-swatch risk-danger"></span>
+              <span>Danger</span>
+            </div>
+          </div>
           <div id="viewer-layers-list" class="layers-list"></div>
         </div>
 
@@ -417,6 +449,9 @@
 
     <!-- Hidden file input for uploading Shapefile -->
     <input type="file" id="file-input-shp" accept=".shp,.dbf,.shx" multiple style="display: none;" />
+
+    <!-- Hidden file input for uploading CSV polyline -->
+    <input type="file" id="file-input-csv-polyline" accept=".csv" style="display: none;" />
 
     <!-- Hidden file input for loading project JSON -->
     <input type="file" id="file-input-project" accept=".json" style="display: none;" />
