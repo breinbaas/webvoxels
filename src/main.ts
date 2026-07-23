@@ -77,7 +77,7 @@ function getSoilDisplayNameForNode(code: string): string {
     return `${resolved.replace(/_/g, ' ')} (${code.replace(/_/g, ' ')})`;
   } else {
     const synonyms: string[] = [];
-    Object.entries(soilSynonyms).forEach(([syn, master]) => {
+    Object.entries(soilSynonyms).forEach(([syn, _]) => {
       if (resolveSoilCode(syn) === code) {
         synonyms.push(syn.replace(/_/g, ' '));
       }
