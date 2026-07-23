@@ -2,6 +2,7 @@
 
 :root {
   --font-family: 'Outfit', sans-serif;
+  --bg-page: #0f172a;
   --bg-overlay: rgba(10, 10, 12, 0.45);
   --bg-card: rgba(22, 22, 26, 0.75);
   --border-color: rgba(255, 255, 255, 0.08);
@@ -1973,6 +1974,95 @@ html, body {
 
 .synonym-tag .btn-remove-synonym:hover {
   color: #ef4444;
+}
+
+/* ============ Login overlay ============ */
+.login-overlay {
+  z-index: 999999;
+  background-color: var(--bg-page);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.login-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.login-field label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.login-field input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.login-field input:focus {
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.login-error {
+  min-height: 1.1em;
+  font-size: 0.8rem;
+  color: #f87171;
+  margin: 0;
+}
+
+.login-submit {
+  background: var(--accent-gradient);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 11px;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.1s ease;
+}
+
+.login-submit:hover {
+  opacity: 0.92;
+}
+
+.login-submit:active {
+  transform: scale(0.98);
+}
+
+.login-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 

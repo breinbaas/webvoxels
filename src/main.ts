@@ -1,4 +1,5 @@
 import './style.css';
+import './auth.ts';
 import 'leaflet/dist/leaflet.css';
 import * as L from 'leaflet';
 import proj4 from 'proj4';
