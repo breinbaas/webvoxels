@@ -4,7 +4,7 @@ interface AuthUser {
 }
 
 const API_URL = (import.meta.env.VITE_API_URL as string) || 'http://127.0.0.1:8000';
-const API_KEY = (import.meta.env.VITE_API_KEY as string) || 'key_frontend_987654321';
+const API_KEY = (import.meta.env.VITE_API_KEY as string);
 
 const STORAGE_KEY = 'webvoxel_auth_user';
 
