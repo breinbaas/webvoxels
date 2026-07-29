@@ -12,7 +12,7 @@ proj4.defs('EPSG:28992', RD_DEF);
 
 // Load configuration from environment variables
 const API_URL = (import.meta.env.VITE_API_URL as string) || 'http://127.0.0.1:8000';
-const API_KEY = (import.meta.env.VITE_API_KEY as string) || 'key_frontend_987654321';
+const API_KEY = (import.meta.env.VITE_API_KEY as string);
 
 // Interfaces for CPT Interpretation Data
 interface SoilLayer {
