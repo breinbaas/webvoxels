@@ -1426,6 +1426,44 @@ html, body {
   color: #fff;
 }
 
+/* Generate Voxel Model Options Modal */
+.generate-options-card {
+  max-width: 460px;
+}
+
+.generate-options-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.btn-cancel-modal {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 11px 20px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.btn-cancel-modal:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-cancel-modal:active {
+  transform: scale(0.98);
+}
+
+.generate-options-actions .login-submit {
+  flex: 0 0 auto;
+  padding: 11px 24px;
+}
+
 .add-soil-section {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--border-color);

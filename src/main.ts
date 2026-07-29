@@ -64,6 +64,43 @@ let currentVoxelVolumes: Record<string, number> = {};
 // Whether the currently displayed voxel model was generated with the risk (distance_filter) payload
 let isRiskModelActive = false;
 
+// Options collected from the "Generate Voxel Model" popup
+interface GenerateOptions {
+  riskModel: boolean;
+  flattenModel: boolean;
+  deterministic: boolean;
+  removePreexcavated: boolean;
+}
+
+const GENERATE_OPTIONS_STORAGE_KEY = 'webvoxel-generate-options';
+
+const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
+  riskModel: false,
+  flattenModel: true,
+  deterministic: false,
+  removePreexcavated: true
+};
+
+function loadGenerateOptions(): GenerateOptions {
+  try {
+    const stored = localStorage.getItem(GENERATE_OPTIONS_STORAGE_KEY);
+    if (stored) {
+      return { ...DEFAULT_GENERATE_OPTIONS, ...JSON.parse(stored) };
+    }
+  } catch (e) {
+    console.error('Failed to load generate options from storage:', e);
+  }
+  return { ...DEFAULT_GENERATE_OPTIONS };
+}
+
+function saveGenerateOptions(options: GenerateOptions) {
+  try {
+    localStorage.setItem(GENERATE_OPTIONS_STORAGE_KEY, JSON.stringify(options));
+  } catch (e) {
+    console.error('Failed to save generate options to storage:', e);
+  }
+}
+
 function resolveSoilCode(code: string): string {
   let current = code;
   const visited = new Set<string>();
@@ -167,7 +204,6 @@ const btnClearDraw = document.getElementById('btn-clear-draw') as HTMLButtonElem
 const drawingInstructions = document.getElementById('drawing-instructions') as HTMLDivElement;
 const generateContainer = document.getElementById('generate-container') as HTMLDivElement;
 const btnGenerateVoxel = document.getElementById('btn-generate-voxel') as HTMLButtonElement;
-const btnGenerateRisk = document.getElementById('btn-generate-risk') as HTMLButtonElement;
 const btnGenerate2d = document.getElementById('btn-generate-2d') as HTMLButtonElement;
 const btnDownloadBro = document.getElementById('btn-download-bro') as HTMLButtonElement;
 const btnSaveProject = document.getElementById('btn-save-project') as HTMLButtonElement;
@@ -199,10 +235,19 @@ const profileLegend = document.getElementById('profile-legend') as HTMLDivElemen
 const settingMaxDistance = document.getElementById('setting-max-distance') as HTMLInputElement;
 const settingMinLayerheight = document.getElementById('setting-min-layerheight') as HTMLInputElement;
 const settingDownloadBoreholes = document.getElementById('setting-download-boreholes') as HTMLInputElement;
-const settingDeterministic = document.getElementById('setting-deterministic') as HTMLInputElement;
-const settingRemovePreexcavated = document.getElementById('setting-remove-preexcavated') as HTMLInputElement;
 const btnDownloadProfile = document.getElementById('btn-download-profile') as HTMLButtonElement;
 const profileAxisXTicks = document.getElementById('profile-axis-x-ticks') as HTMLDivElement;
+
+// Generate Voxel Model options modal elements
+const generateOptionsOverlay = document.getElementById('generate-options-overlay') as HTMLDivElement;
+const btnCloseGenerateOptions = document.getElementById('btn-close-generate-options') as HTMLButtonElement;
+const btnCancelGenerateOptions = document.getElementById('btn-cancel-generate-options') as HTMLButtonElement;
+const btnConfirmGenerateOptions = document.getElementById('btn-confirm-generate-options') as HTMLButtonElement;
+const generateOptionFlattenItem = document.getElementById('generate-option-flatten-item') as HTMLDivElement;
+const generateOptionRisk = document.getElementById('generate-option-risk') as HTMLInputElement;
+const generateOptionFlatten = document.getElementById('generate-option-flatten') as HTMLInputElement;
+const generateOptionDeterministic = document.getElementById('generate-option-deterministic') as HTMLInputElement;
+const generateOptionRemovePreexcavated = document.getElementById('generate-option-remove-preexcavated') as HTMLInputElement;
 
 // Toggle menu overlay visibility on pressing F2
 window.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -1506,7 +1551,8 @@ btnClearDraw.addEventListener('click', () => {
   setDrawingMode('view');
 });
 
-async function generateVoxelModel(riskMode: boolean) {
+async function generateVoxelModel(options: GenerateOptions) {
+  const riskMode = options.riskModel;
   if (uploadedCpts.length === 0) {
     alert('Please upload some CPT files first.');
     return;
@@ -1648,8 +1694,8 @@ async function generateVoxelModel(riskMode: boolean) {
         anisotropy_ratio: 50,
         step_size: 0.5,
         soil_colors: filteredSoilColors,
-        deterministic: settingDeterministic ? settingDeterministic.checked : false,
-        remove_preexcavated: settingRemovePreexcavated ? settingRemovePreexcavated.checked : true,
+        deterministic: options.deterministic,
+        remove_preexcavated: options.removePreexcavated,
         ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
 
@@ -1721,19 +1767,20 @@ async function generateVoxelModel(riskMode: boolean) {
           points: rdPoints.map(p => p.alt !== undefined ? [p.x, p.y, p.alt] : [p.x, p.y])
         },
         soil_colors: filteredSoilColors,
-        deterministic: settingDeterministic ? settingDeterministic.checked : false,
-        remove_preexcavated: settingRemovePreexcavated ? settingRemovePreexcavated.checked : true,
+        deterministic: options.deterministic,
+        remove_preexcavated: options.removePreexcavated,
+        ...(options.flattenModel ? { flatten_model: true } : {}),
         ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
 
-      //console.log('Sending 2D GLB export request payload:', payload);
+      // console.log('Sending 2D GLB export request payload:', payload);
 
       // write to file waverdijk
       // const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       // const url = URL.createObjectURL(blob);
       // const a = document.createElement('a');
       // a.href = url;
-      // a.download = 'waverdijk.json';
+      // a.download = 'flattened.json';
       // a.click();
 
 
@@ -1803,8 +1850,58 @@ async function generateVoxelModel(riskMode: boolean) {
   }
 }
 
-btnGenerateVoxel.addEventListener('click', () => generateVoxelModel(false));
-btnGenerateRisk.addEventListener('click', () => generateVoxelModel(true));
+// Open the Generate Voxel Model options popup, pre-filled with the last remembered choices
+btnGenerateVoxel.addEventListener('click', () => {
+  if (uploadedCpts.length === 0) {
+    alert('Please upload some CPT files first.');
+    return;
+  }
+
+  const isRectangle = activeDrawingLayer instanceof L.Rectangle;
+  const isPolyline = activeDrawingLayer instanceof L.Polyline && !isRectangle;
+
+  if (!activeDrawingLayer || (!isRectangle && !isPolyline)) {
+    alert('Please draw a rectangle or a line on the map to define the generation area.');
+    return;
+  }
+
+  const options = loadGenerateOptions();
+  generateOptionRisk.checked = options.riskModel;
+  generateOptionFlatten.checked = options.flattenModel;
+  generateOptionDeterministic.checked = options.deterministic;
+  generateOptionRemovePreexcavated.checked = options.removePreexcavated;
+
+  // Flatten Model only applies to the 2D (polyline) generation path
+  generateOptionFlattenItem.style.display = isPolyline ? 'flex' : 'none';
+
+  generateOptionsOverlay.classList.add('active');
+});
+
+btnConfirmGenerateOptions.addEventListener('click', () => {
+  const options: GenerateOptions = {
+    riskModel: generateOptionRisk.checked,
+    flattenModel: generateOptionFlatten.checked,
+    deterministic: generateOptionDeterministic.checked,
+    removePreexcavated: generateOptionRemovePreexcavated.checked
+  };
+  saveGenerateOptions(options);
+  generateOptionsOverlay.classList.remove('active');
+  generateVoxelModel(options);
+});
+
+btnCancelGenerateOptions.addEventListener('click', () => {
+  generateOptionsOverlay.classList.remove('active');
+});
+
+btnCloseGenerateOptions.addEventListener('click', () => {
+  generateOptionsOverlay.classList.remove('active');
+});
+
+generateOptionsOverlay.addEventListener('click', (e: MouseEvent) => {
+  if (e.target === generateOptionsOverlay) {
+    generateOptionsOverlay.classList.remove('active');
+  }
+});
 
 // Generate 2D View along Polyline click handler
 btnGenerate2d.addEventListener('click', () => {
@@ -3008,25 +3105,13 @@ btnSaveProject.addEventListener('click', () => {
       }
     }
 
-    let deterministic = false;
-    if (settingDeterministic) {
-      deterministic = settingDeterministic.checked;
-    }
-
-    let removePreexcavated = true;
-    if (settingRemovePreexcavated) {
-      removePreexcavated = settingRemovePreexcavated.checked;
-    }
-
     const projectData = {
       version: '1.0.0',
       uploadedCpts,
       uploadedFilenames: Array.from(uploadedFilenames),
       settings: {
         maxDistance,
-        minLayerheight,
-        deterministic,
-        removePreexcavated
+        minLayerheight
       },
       drawing,
       soilColors,
@@ -3106,12 +3191,6 @@ fileInputProject.addEventListener('change', async (e: Event) => {
       }
       if (typeof projectData.settings.minLayerheight === 'number' && settingMinLayerheight) {
         settingMinLayerheight.value = String(projectData.settings.minLayerheight);
-      }
-      if (typeof projectData.settings.deterministic === 'boolean' && settingDeterministic) {
-        settingDeterministic.checked = projectData.settings.deterministic;
-      }
-      if (typeof projectData.settings.removePreexcavated === 'boolean' && settingRemovePreexcavated) {
-        settingRemovePreexcavated.checked = projectData.settings.removePreexcavated;
       }
     }
 
@@ -3225,9 +3304,6 @@ btnNewProject.addEventListener('click', () => {
     // 4. Reset max distance settings input
     if (settingMaxDistance) {
       settingMaxDistance.value = '20';
-    }
-    if (settingDeterministic) {
-      settingDeterministic.checked = false;
     }
 
     // 5. Reset upload badges
