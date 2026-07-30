@@ -4,6 +4,9 @@ import 'leaflet/dist/leaflet.css';
 import * as L from 'leaflet';
 import proj4 from 'proj4';
 import * as htmlToImage from 'html-to-image';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 
 // Register EPSG:28992 (RD New)
@@ -67,7 +70,6 @@ let isRiskModelActive = false;
 // Options collected from the "Generate Voxel Model" popup
 interface GenerateOptions {
   riskModel: boolean;
-  flattenModel: boolean;
   deterministic: boolean;
   removePreexcavated: boolean;
 }
@@ -76,7 +78,6 @@ const GENERATE_OPTIONS_STORAGE_KEY = 'webvoxel-generate-options';
 
 const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   riskModel: false,
-  flattenModel: true,
   deterministic: false,
   removePreexcavated: true
 };
@@ -217,13 +218,17 @@ const appContainer = document.getElementById('app-container') as HTMLDivElement;
 const mapContainer = document.getElementById('map-container') as HTMLDivElement;
 const viewerContainer = document.getElementById('viewer-container') as HTMLDivElement;
 const splitDivider = document.getElementById('split-divider') as HTMLDivElement;
-const voxelModelViewer = document.getElementById('voxel-model-viewer') as any;
+const voxelModelViewer = document.getElementById('voxel-model-viewer') as HTMLDivElement;
+const voxelViewerTooltip = document.getElementById('voxel-viewer-tooltip') as HTMLDivElement;
 // const btnCloseViewer = document.getElementById('btn-close-viewer') as HTMLButtonElement;
 const btnDownloadGlb = document.getElementById('btn-download-glb') as HTMLButtonElement;
 const btnResetView = document.getElementById('btn-reset-view') as HTMLButtonElement;
 const viewerLayersPanel = document.getElementById('viewer-layers-panel') as HTMLDivElement;
 const viewerLayersList = document.getElementById('viewer-layers-list') as HTMLDivElement;
 const riskLegendKey = document.getElementById('risk-legend-key') as HTMLDivElement;
+const mapOpacityControl = document.getElementById('map-opacity-control') as HTMLDivElement;
+const mapOpacitySlider = document.getElementById('map-opacity-slider') as HTMLInputElement;
+const mapOpacityValue = document.getElementById('map-opacity-value') as HTMLSpanElement;
 const loadingOverlay = document.getElementById('loading-overlay') as HTMLDivElement;
 const loaderText = document.getElementById('loader-text') as HTMLDivElement;
 
@@ -243,11 +248,450 @@ const generateOptionsOverlay = document.getElementById('generate-options-overlay
 const btnCloseGenerateOptions = document.getElementById('btn-close-generate-options') as HTMLButtonElement;
 const btnCancelGenerateOptions = document.getElementById('btn-cancel-generate-options') as HTMLButtonElement;
 const btnConfirmGenerateOptions = document.getElementById('btn-confirm-generate-options') as HTMLButtonElement;
-const generateOptionFlattenItem = document.getElementById('generate-option-flatten-item') as HTMLDivElement;
 const generateOptionRisk = document.getElementById('generate-option-risk') as HTMLInputElement;
-const generateOptionFlatten = document.getElementById('generate-option-flatten') as HTMLInputElement;
 const generateOptionDeterministic = document.getElementById('generate-option-deterministic') as HTMLInputElement;
 const generateOptionRemovePreexcavated = document.getElementById('generate-option-remove-preexcavated') as HTMLInputElement;
+
+// ==========================================
+// 3D Voxel Model Viewer (Three.js)
+// ==========================================
+
+// Real-world (RD/EPSG:28992) footprint + depth bounds of the currently loaded model.
+//
+// The backend exports GLB vertices in one of two ways:
+// - "centered" (center_and_y_up=true, the 3D/rectangle endpoint's default): vertices are
+//   centered at the model's middle and swapped to Y-up: gltfX = RD_X - cx, gltfY = NAP_Z - cz,
+//   gltfZ = -(RD_Y - cy).
+// - "raw" (center_and_y_up=false, the 2D/polyline endpoint's default): vertices are the
+//   absolute RD/NAP values with no offset or swap: gltfX = RD_X, gltfY = RD_Y, gltfZ = NAP_Z.
+interface VoxelGeoBounds {
+  xMin: number; xMax: number;
+  yMin: number; yMax: number;
+  zMin: number; zMax: number;
+  raw: boolean;
+}
+
+let voxelScene: THREE.Scene;
+let voxelCamera: THREE.PerspectiveCamera;
+let voxelRenderer: THREE.WebGLRenderer;
+let voxelControls: OrbitControls;
+const voxelRaycaster = new THREE.Raycaster();
+
+let voxelModelRoot: THREE.Object3D | null = null;
+let voxelModelBox: THREE.Box3 | null = null;
+let voxelGroundPlane: THREE.Mesh | null = null;
+let voxelGeoBounds: VoxelGeoBounds | null = null;
+let currentVoxelModelUrl: string | null = null;
+let voxelGridHelper: THREE.GridHelper | null = null;
+let voxelNorthSouthLine: THREE.Line | null = null;
+
+function initVoxelViewer() {
+  voxelScene = new THREE.Scene();
+  voxelScene.background = new THREE.Color(0x0b0f19);
+  voxelScene.fog = new THREE.Fog(0x0b0f19, 200, 5000);
+
+  voxelCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 50000);
+  voxelCamera.position.set(50, 40, 50);
+
+  voxelRenderer = new THREE.WebGLRenderer({ antialias: true });
+  voxelRenderer.setPixelRatio(window.devicePixelRatio);
+  voxelModelViewer.appendChild(voxelRenderer.domElement);
+
+  voxelControls = new OrbitControls(voxelCamera, voxelRenderer.domElement);
+  voxelControls.enableDamping = true;
+  voxelControls.dampingFactor = 0.08;
+  voxelControls.minDistance = 0.5;
+  voxelControls.maxDistance = 20000;
+
+  const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+  voxelScene.add(ambient);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  dirLight.position.set(100, 200, 100);
+  voxelScene.add(dirLight);
+  const fillLight = new THREE.DirectionalLight(0x8899ff, 0.3);
+  fillLight.position.set(-100, 50, -100);
+  voxelScene.add(fillLight);
+
+  voxelGridHelper = new THREE.GridHelper(1000, 100, 0x6366f1, 0x2a2a4a);
+  voxelScene.add(voxelGridHelper);
+
+  const resizeObserver = new ResizeObserver(() => resizeVoxelViewer());
+  resizeObserver.observe(voxelModelViewer);
+
+  voxelRenderer.domElement.addEventListener('mousemove', onVoxelMouseMove);
+  voxelRenderer.domElement.addEventListener('mouseleave', () => {
+    voxelViewerTooltip.style.display = 'none';
+  });
+
+  mapOpacitySlider.addEventListener('input', () => {
+    const value = parseFloat(mapOpacitySlider.value) || 0;
+    mapOpacityValue.textContent = Math.round(value * 100) + '%';
+    if (voxelGroundPlane) {
+      (voxelGroundPlane.material as THREE.MeshBasicMaterial).opacity = value;
+    }
+  });
+
+  resizeVoxelViewer();
+  animateVoxelViewer();
+}
+
+function resizeVoxelViewer() {
+  const width = voxelModelViewer.clientWidth || 1;
+  const height = voxelModelViewer.clientHeight || 1;
+  voxelCamera.aspect = width / height;
+  voxelCamera.updateProjectionMatrix();
+  voxelRenderer.setSize(width, height);
+}
+
+function animateVoxelViewer() {
+  requestAnimationFrame(animateVoxelViewer);
+  voxelControls.update();
+  voxelRenderer.render(voxelScene, voxelCamera);
+}
+
+function disposeVoxelModel() {
+  if (voxelModelRoot) {
+    voxelScene.remove(voxelModelRoot);
+    voxelModelRoot.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if ((mesh as any).isMesh) {
+        mesh.geometry.dispose();
+        const material = mesh.material;
+        if (Array.isArray(material)) material.forEach((m) => m.dispose());
+        else material?.dispose();
+      }
+    });
+    voxelModelRoot = null;
+  }
+  voxelModelBox = null;
+  removeVoxelGroundPlane();
+}
+
+function removeVoxelGroundPlane() {
+  if (voxelGroundPlane) {
+    voxelScene.remove(voxelGroundPlane);
+    voxelGroundPlane.geometry.dispose();
+    (voxelGroundPlane.material as THREE.Material).dispose();
+    voxelGroundPlane = null;
+  }
+}
+
+// Load a freshly generated GLB into the viewer, replacing whatever was there before.
+//
+// rawOrientation is true for the 2D/polyline endpoint, which (unlike the 3D/rectangle endpoint)
+// never asks the backend to center_and_y_up - so its vertices come out as absolute
+// (RD_X, RD_Y, NAP_Z), with elevation on the mesh's Z axis instead of Y. Left as-is, that model
+// orbits/tilts "sideways" compared to the 3D viewer, since OrbitControls treats world Y as up.
+// Rotating the loaded root -90 deg about X maps (x, y, z) -> (x, z, -y), putting elevation on Y
+// and flipping north/south the same way the backend's own center_and_y_up swap does, so both
+// model types end up oriented (and mouse-controlled) the same way.
+function loadVoxelModel(blobUrl: string, geoBounds: VoxelGeoBounds | null, rawOrientation: boolean) {
+  disposeVoxelModel();
+  voxelGeoBounds = geoBounds;
+
+  const loader = new GLTFLoader();
+  loader.load(blobUrl, (gltf) => {
+    voxelModelRoot = gltf.scene;
+    if (rawOrientation) {
+      voxelModelRoot.rotation.x = -Math.PI / 2;
+    }
+    voxelScene.add(voxelModelRoot);
+    voxelModelRoot.updateMatrixWorld(true);
+    voxelModelBox = new THREE.Box3().setFromObject(voxelModelRoot);
+
+    frameVoxelModel();
+    updateVoxelGroundHelpers();
+    populateVoxelLegend(voxelModelRoot);
+
+    if (voxelGeoBounds) {
+      mapOpacityControl.style.display = 'block';
+      loadVoxelGroundMapTexture();
+    } else {
+      mapOpacityControl.style.display = 'none';
+    }
+  }, undefined, (error) => {
+    console.error('Failed to load GLB into 3D viewer:', error);
+  });
+}
+
+// Frame the camera/orbit target around the currently loaded model. Also used by the Reset button.
+function frameVoxelModel() {
+  if (!voxelModelRoot || !voxelModelBox) return;
+  const size = voxelModelBox.getSize(new THREE.Vector3());
+  const center = voxelModelBox.getCenter(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const dist = maxDim * 1.5;
+
+  voxelCamera.near = Math.max(maxDim / 1000, 0.01);
+  voxelCamera.far = Math.max(maxDim * 50, 5000);
+  voxelCamera.updateProjectionMatrix();
+
+  voxelControls.target.copy(center);
+  voxelCamera.position.set(center.x + dist, center.y + dist * 0.7, center.z + dist);
+  voxelControls.update();
+}
+
+// Resize/reposition the reference grid and the orange north-south line to fit the model that
+// was just loaded: centered under its footprint, sitting just above its top surface. The line
+// runs along local Z, which (after the axis handling in loadVoxelModel/the backend's own
+// center_and_y_up swap) always points south with increasing Z - so the north end is -halfLen
+// and the south end is +halfLen.
+function updateVoxelGroundHelpers() {
+  if (!voxelModelBox) return;
+  const size = voxelModelBox.getSize(new THREE.Vector3());
+  const center = voxelModelBox.getCenter(new THREE.Vector3());
+  const footprint = Math.max(size.x, size.z, 10);
+  const gridSize = footprint * 3;
+  const divisions = Math.max(10, Math.round(gridSize / Math.max(footprint / 10, 1)));
+  const liftY = footprint * 0.001 + 0.01;
+  const groundY = voxelModelBox.max.y + liftY;
+
+  if (voxelGridHelper) {
+    voxelScene.remove(voxelGridHelper);
+    voxelGridHelper.geometry.dispose();
+    (voxelGridHelper.material as THREE.Material).dispose();
+  }
+  voxelGridHelper = new THREE.GridHelper(gridSize, divisions, 0x6366f1, 0x2a2a4a);
+  voxelGridHelper.position.set(center.x, groundY, center.z);
+  voxelScene.add(voxelGridHelper);
+
+  if (voxelNorthSouthLine) {
+    voxelScene.remove(voxelNorthSouthLine);
+    voxelNorthSouthLine.geometry.dispose();
+    (voxelNorthSouthLine.material as THREE.Material).dispose();
+  }
+  const halfLen = gridSize / 2;
+  const lineGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(center.x, groundY, center.z - halfLen), // north
+    new THREE.Vector3(center.x, groundY, center.z + halfLen)  // south
+  ]);
+  voxelNorthSouthLine = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
+  voxelScene.add(voxelNorthSouthLine);
+}
+
+function resetVoxelView() {
+  frameVoxelModel();
+}
+
+// The backend's "centered" GLB export (center_and_y_up=true - the 3D/rectangle endpoint's
+// default) centers the model at its own middle and swaps axes: gltfX = RD_X - cx,
+// gltfY = NAP_Z - cz, gltfZ = -(RD_Y - cy). cx/cy/cz are the model's real-world center, which we
+// can reconstruct from the x/y/z bounds already known client-side (the backend derives its
+// center the same way, from the same origin/extent).
+//
+// The "raw" export (center_and_y_up=false - the 2D/polyline endpoint's default) skips both the
+// centering and the swap, so loadVoxelModel() applies an equivalent -90deg rotation about X when
+// loading it. That rotation maps (x, y, z) -> (x, z, -y), which is exactly the centered
+// transform's axis swap with cx = cy = cz = 0 (the raw export never subtracts a center). So once
+// rotated, both model types share the same world-space convention and this same center (0 for
+// raw) is all that's needed to invert it.
+function voxelGeoCenter(bounds: VoxelGeoBounds) {
+  if (bounds.raw) {
+    return { cx: 0, cy: 0, cz: 0 };
+  }
+  return {
+    cx: (bounds.xMin + bounds.xMax) / 2,
+    cy: (bounds.yMin + bounds.yMax) / 2,
+    cz: (bounds.zMin + bounds.zMax) / 2
+  };
+}
+
+// Given a real-world RD (x, y) point, return its local mesh (x, z) position at the model's top
+// surface, i.e. the plane the aerial photo drapes onto.
+function rdHorizontalToLocalGround(rdX: number, rdY: number, bounds: VoxelGeoBounds) {
+  const { cx, cy } = voxelGeoCenter(bounds);
+  return { x: rdX - cx, z: cy - rdY };
+}
+
+// Drape the PDOK aerial photo on the model's footprint, using the real-world RD bounds that
+// were already known client-side (from the drawn rectangle/polyline) before the GLB was
+// even generated.
+function loadVoxelGroundMapTexture() {
+  if (!voxelModelRoot || !voxelModelBox || !voxelGeoBounds) return;
+  const bounds = voxelGeoBounds;
+
+  const { xMin, xMax, yMin, yMax } = bounds;
+  const padW = Math.max(xMax - xMin, 10) * 0.1;
+  const padH = Math.max(yMax - yMin, 10) * 0.1;
+  const bx0 = xMin - padW, bx1 = xMax + padW;
+  const by0 = yMin - padH, by1 = yMax + padH;
+  const bw = bx1 - bx0, bh = by1 - by0;
+
+  const maxDim = 1024;
+  let imgW: number, imgH: number;
+  if (bw >= bh) { imgW = maxDim; imgH = Math.max(1, Math.round(maxDim * bh / bw)); }
+  else { imgH = maxDim; imgW = Math.max(1, Math.round(maxDim * bw / bh)); }
+
+  const url = 'https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap' +
+    '&LAYERS=Actueel_orthoHR&STYLES=&CRS=EPSG:28992&FORMAT=image/jpeg' +
+    '&BBOX=' + [bx0, by0, bx1, by1].join(',') +
+    '&WIDTH=' + imgW + '&HEIGHT=' + imgH;
+
+  const box = voxelModelBox;
+  const loader = new THREE.TextureLoader();
+  loader.setCrossOrigin('anonymous');
+  loader.load(url, (texture) => {
+    // Guard against a stale/slow response landing after a newer model was loaded.
+    if (!voxelModelRoot || voxelModelBox !== box) return;
+
+    removeVoxelGroundPlane();
+
+    // West/east map straight to local X; south/north map to local Z inverted (gltfZ = cy - RD_Y).
+    const sw = rdHorizontalToLocalGround(bx0, by0, bounds);
+    const se = rdHorizontalToLocalGround(bx1, by0, bounds);
+    const nw = rdHorizontalToLocalGround(bx0, by1, bounds);
+    const ne = rdHorizontalToLocalGround(bx1, by1, bounds);
+    const g = box.max.y;
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+      sw.x, g, sw.z, // SW
+      se.x, g, se.z, // SE
+      nw.x, g, nw.z, // NW
+      ne.x, g, ne.z  // NE
+    ]), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), 2));
+    geo.setIndex([0, 1, 2, 2, 1, 3]);
+    geo.computeVertexNormals();
+
+    const mat = new THREE.MeshBasicMaterial({
+      map: texture,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: parseFloat(mapOpacitySlider.value) || 0.7
+    });
+    voxelGroundPlane = new THREE.Mesh(geo, mat);
+    voxelGroundPlane.renderOrder = -1;
+    voxelScene.add(voxelGroundPlane);
+  }, undefined, (error) => {
+    console.error('Failed to load aerial imagery for ground drape:', error);
+  });
+}
+
+// Build the soil-type legend (checkbox + color swatch + volume) from the loaded glTF scene graph.
+function populateVoxelLegend(root: THREE.Object3D) {
+  viewerLayersList.innerHTML = '';
+
+  const layers: { name: string; node: THREE.Object3D }[] = [];
+  root.children.forEach((child) => {
+    if (child.name && !layers.some(l => l.name === child.name)) {
+      layers.push({ name: child.name, node: child });
+    }
+  });
+
+  if (layers.length === 0) {
+    root.traverse((child) => {
+      if (child.name && (child.name in defaultSoilColors || child.name.startsWith('Soil_'))) {
+        if (!layers.some(l => l.name === child.name)) {
+          layers.push({ name: child.name, node: child });
+        }
+      }
+    });
+  }
+
+  layers.sort((a, b) => a.name.localeCompare(b.name));
+
+  riskLegendKey.style.display = isRiskModelActive ? 'flex' : 'none';
+
+  if (layers.length === 0) {
+    viewerLayersPanel.classList.remove('active');
+    return;
+  }
+
+  viewerLayersPanel.classList.add('active');
+
+  layers.forEach(({ name, node }) => {
+    const resolvedCode = resolveSoilCode(name);
+    const color = soilColors[resolvedCode] || '#808080';
+    const displayName = getSoilDisplayNameForNode(name);
+
+    const itemEl = document.createElement('label');
+    itemEl.className = 'layer-item';
+    itemEl.setAttribute('data-layer-name', name);
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = node.visible !== false;
+    checkbox.addEventListener('change', () => {
+      node.visible = checkbox.checked;
+    });
+
+    const colorIndicator = document.createElement('div');
+    colorIndicator.className = 'layer-color-indicator';
+    colorIndicator.style.display = isRiskModelActive ? 'none' : '';
+    colorIndicator.style.backgroundColor = color;
+
+    const labelText = document.createElement('span');
+    labelText.className = 'layer-label';
+    labelText.textContent = displayName;
+    labelText.title = displayName;
+
+    const volume = currentVoxelVolumes[name] ?? currentVoxelVolumes[resolvedCode] ?? currentVoxelVolumes[displayName];
+    const volumeText = document.createElement('span');
+    volumeText.className = 'layer-volume';
+    if (volume !== undefined) {
+      volumeText.textContent = `${volume.toFixed(0)} m³`;
+      volumeText.title = `${volume.toFixed(0)} m³`;
+    }
+
+    itemEl.appendChild(checkbox);
+    itemEl.appendChild(colorIndicator);
+    itemEl.appendChild(labelText);
+    itemEl.appendChild(volumeText);
+
+    viewerLayersList.appendChild(itemEl);
+  });
+}
+
+// Hover picking: shows the real-world RD coordinate under the cursor.
+function onVoxelMouseMove(event: MouseEvent) {
+  if (!voxelModelRoot || !voxelModelBox) {
+    voxelViewerTooltip.style.display = 'none';
+    return;
+  }
+
+  const rect = voxelRenderer.domElement.getBoundingClientRect();
+  const mouse = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  voxelRaycaster.setFromCamera(mouse, voxelCamera);
+  const intersects = voxelRaycaster.intersectObject(voxelModelRoot, true);
+
+  if (intersects.length === 0) {
+    voxelRenderer.domElement.style.cursor = 'default';
+    voxelViewerTooltip.style.display = 'none';
+    return;
+  }
+
+  voxelRenderer.domElement.style.cursor = 'crosshair';
+
+  if (!voxelGeoBounds) {
+    voxelViewerTooltip.style.display = 'none';
+    return;
+  }
+
+  const point = intersects[0].point;
+  const { cx, cy, cz } = voxelGeoCenter(voxelGeoBounds);
+
+  // Invert the (now-shared) world-space transform: gltfX = RD_X - cx, gltfY = NAP_Z - cz,
+  // gltfZ = -(RD_Y - cy). cx/cy/cz are 0 for raw exports (see voxelGeoCenter).
+  const rdX = point.x + cx;
+  const rdY = cy - point.z;
+  const rdZ = point.y + cz;
+
+  voxelViewerTooltip.style.display = 'block';
+  voxelViewerTooltip.style.left = (event.clientX + 15) + 'px';
+  voxelViewerTooltip.style.top = (event.clientY + 15) + 'px';
+  voxelViewerTooltip.innerHTML = `
+    <strong>RD Coordinate</strong><br>
+    X: ${rdX.toFixed(1)} m<br>
+    Y: ${rdY.toFixed(1)} m<br>
+    Z: ${rdZ.toFixed(1)} m NAP
+  `;
+}
+
+initVoxelViewer();
 
 // Toggle menu overlay visibility on pressing F2
 window.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -1575,6 +2019,10 @@ async function generateVoxelModel(options: GenerateOptions) {
   // Show the loader overlay
   loadingOverlay.classList.add('active');
 
+  // Real-world footprint/depth bounds for the generated model, set below once the rectangle
+  // or polyline geometry is known.
+  let lastGeoBounds: VoxelGeoBounds | null = null;
+
   try {
     let response: Response;
 
@@ -1644,6 +2092,8 @@ async function generateVoxelModel(options: GenerateOptions) {
       if (zMin === Infinity || zMax === -Infinity) {
         throw new Error('Could not compute Z boundaries from CPTs in the area.');
       }
+
+      lastGeoBounds = { xMin, xMax, yMin, yMax, zMin, zMax, raw: false };
 
       // // 5. Centering coordinates around 0,0,0
       // const xCenter = (xMin + xMax) / 2;
@@ -1728,6 +2178,15 @@ async function generateVoxelModel(options: GenerateOptions) {
         throw new Error('Could not compute Z boundaries from CPTs.');
       }
 
+      // The profile follows the actual polyline through RD space, so it has a real footprint.
+      const lineXs = rdPoints.map(p => p.x);
+      const lineYs = rdPoints.map(p => p.y);
+      lastGeoBounds = {
+        xMin: Math.min(...lineXs), xMax: Math.max(...lineXs),
+        yMin: Math.min(...lineYs), yMax: Math.max(...lineYs),
+        zMin: minZ, zMax: maxZ,
+        raw: true
+      };
 
       // Project each CPT onto the reference line (original, to match coordinates)
       const soilProfilesPayload = uploadedCpts.map((cpt) => {
@@ -1761,7 +2220,6 @@ async function generateVoxelModel(options: GenerateOptions) {
         soil_colors: filteredSoilColors,
         deterministic: options.deterministic,
         remove_preexcavated: options.removePreexcavated,
-        ...(options.flattenModel ? { flatten: true } : {}),
         ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
 
@@ -1816,14 +2274,15 @@ async function generateVoxelModel(options: GenerateOptions) {
     isRiskModelActive = riskMode;
 
     // Revoke previous URL if any to prevent memory leak
-    if (voxelModelViewer.src) {
-      URL.revokeObjectURL(voxelModelViewer.src);
+    if (currentVoxelModelUrl) {
+      URL.revokeObjectURL(currentVoxelModelUrl);
     }
 
     const modelUrl = URL.createObjectURL(filePart);
+    currentVoxelModelUrl = modelUrl;
 
-    // Update model viewer source
-    voxelModelViewer.src = modelUrl;
+    // Load into the 3D viewer (drapes the aerial photo automatically for rectangle/3D models)
+    loadVoxelModel(modelUrl, lastGeoBounds, !isRectangle);
 
     // Open split view
     appContainer.classList.add('split-active');
@@ -1859,12 +2318,8 @@ btnGenerateVoxel.addEventListener('click', () => {
 
   const options = loadGenerateOptions();
   generateOptionRisk.checked = options.riskModel;
-  generateOptionFlatten.checked = options.flattenModel;
   generateOptionDeterministic.checked = options.deterministic;
   generateOptionRemovePreexcavated.checked = options.removePreexcavated;
-
-  // Flatten Model only applies to the 2D (polyline) generation path
-  generateOptionFlattenItem.style.display = isPolyline ? 'flex' : 'none';
 
   generateOptionsOverlay.classList.add('active');
 });
@@ -1872,7 +2327,6 @@ btnGenerateVoxel.addEventListener('click', () => {
 btnConfirmGenerateOptions.addEventListener('click', () => {
   const options: GenerateOptions = {
     riskModel: generateOptionRisk.checked,
-    flattenModel: generateOptionFlatten.checked,
     deterministic: generateOptionDeterministic.checked,
     removePreexcavated: generateOptionRemovePreexcavated.checked
   };
@@ -2590,11 +3044,10 @@ btnDownloadBro.addEventListener('click', async () => {
 
 // Download GLB model
 btnDownloadGlb.addEventListener('click', () => {
-  const modelUrl = voxelModelViewer.src;
-  if (!modelUrl) return;
+  if (!currentVoxelModelUrl) return;
 
   const a = document.createElement('a');
-  a.href = modelUrl;
+  a.href = currentVoxelModelUrl;
   a.download = 'voxel_model.glb';
   document.body.appendChild(a);
   a.click();
@@ -2603,140 +3056,8 @@ btnDownloadGlb.addEventListener('click', () => {
 
 // Reset viewpoint and zoom of the 3D model viewer
 btnResetView.addEventListener('click', () => {
-  if (!voxelModelViewer.src) return;
-
-  // Reset orbit, target and field of view to automatic defaults
-  voxelModelViewer.cameraOrbit = 'auto auto auto';
-  voxelModelViewer.cameraTarget = 'auto auto auto';
-  voxelModelViewer.fieldOfView = 'auto';
-
-  // Jump camera directly to goals
-  if (typeof voxelModelViewer.jumpToGoal === 'function') {
-    voxelModelViewer.jumpToGoal();
-  }
-});
-
-// Dynamically build checkboxes to toggle soil layers on load
-voxelModelViewer.addEventListener('load', () => {
-  // Clear previous layers list
-  viewerLayersList.innerHTML = '';
-
-  // Access the internal Three.js scene Symbol
-  const sceneSym = Object.getOwnPropertySymbols(voxelModelViewer).find(
-    (x) => x.description === "scene"
-  );
-  if (!sceneSym) return;
-  const scene = voxelModelViewer[sceneSym];
-  if (!scene) return;
-
-  // Find the glTF root scene group inside the Three.js scene children
-  const gltfRoot = scene.children.find((child: any) => child.type === 'Group' || child.name === 'Scene');
-  const layers: { name: string; node: any }[] = [];
-
-  if (gltfRoot && gltfRoot.children) {
-    gltfRoot.children.forEach((child: any) => {
-      if (child.name && !layers.some(l => l.name === child.name)) {
-        layers.push({ name: child.name, node: child });
-      }
-    });
-  }
-
-  // Fallback: recursively search the entire scene graph for layer nodes
-  if (layers.length === 0) {
-    scene.traverse((child: any) => {
-      if (child.name && (child.name in defaultSoilColors || child.name.startsWith("Soil_"))) {
-        if (!layers.some(l => l.name === child.name)) {
-          layers.push({ name: child.name, node: child });
-        }
-      }
-    });
-  }
-
-  // Sort layers alphabetically
-  layers.sort((a, b) => a.name.localeCompare(b.name));
-
-  //console.log('GLB model loaded. Found layers:', layers.map(l => l.name));
-
-  // Risk models are recolored server-side (green = safe, red = danger) instead
-  // of by soil type, so swap the per-soil legend for a fixed green/red key.
-  riskLegendKey.style.display = isRiskModelActive ? 'flex' : 'none';
-
-  if (layers.length > 0) {
-    // Show the panel
-    viewerLayersPanel.classList.add('active');
-
-    // Create a checkbox for each layer
-    layers.forEach(({ name, node }) => {
-      // Find the color from our active color map (defaulting to general soilColors)
-      const resolvedCode = resolveSoilCode(name);
-      const color = soilColors[resolvedCode] || '#808080';
-      const displayName = getSoilDisplayNameForNode(name);
-
-      const itemEl = document.createElement('label');
-      itemEl.className = 'layer-item';
-      itemEl.setAttribute('data-layer-name', name);
-
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = node.visible !== false;
-
-      // Event listener to toggle visibility of the node in three.js
-      checkbox.addEventListener('change', () => {
-        node.visible = checkbox.checked;
-
-        // 1. Force a WebGL redraw by slightly toggling shadow-intensity
-        const currentShadow = voxelModelViewer.getAttribute('shadow-intensity') || '1';
-        voxelModelViewer.setAttribute('shadow-intensity', currentShadow === '1' ? '0.999' : '1');
-
-        // 2. Nudge camera orbit slightly to invalidate the render cache
-        const orbit = voxelModelViewer.getCameraOrbit();
-        if (orbit) {
-          voxelModelViewer.cameraOrbit = `${orbit.theta + 0.000001}rad ${orbit.phi}rad ${orbit.radius}m`;
-        }
-
-        // 3. Find and call the internal needsRender symbol to force redrawing the scene
-        const needsRenderSym = Object.getOwnPropertySymbols(voxelModelViewer).find(
-          (x) => x.description && x.description.includes("needsRender")
-        );
-        if (needsRenderSym && typeof voxelModelViewer[needsRenderSym] === 'function') {
-          voxelModelViewer[needsRenderSym]();
-        }
-
-        // 4. Request LitElement template update
-        voxelModelViewer.requestUpdate();
-      });
-
-      const colorIndicator = document.createElement('div');
-      colorIndicator.className = 'layer-color-indicator';
-      // In risk mode the mesh itself is colored green/red by distance, not by
-      // soil type, so the per-soil swatch would be misleading - hide it and
-      // rely on the fixed risk legend key shown above the list instead.
-      colorIndicator.style.display = isRiskModelActive ? 'none' : '';
-      colorIndicator.style.backgroundColor = color;
-
-      const labelText = document.createElement('span');
-      labelText.className = 'layer-label';
-      labelText.textContent = displayName;
-      labelText.title = displayName;
-
-      const volume = currentVoxelVolumes[name] ?? currentVoxelVolumes[resolvedCode] ?? currentVoxelVolumes[displayName];
-      const volumeText = document.createElement('span');
-      volumeText.className = 'layer-volume';
-      if (volume !== undefined) {
-        volumeText.textContent = `${volume.toFixed(0)} m³`;
-        volumeText.title = `${volume.toFixed(0)} m³`;
-      }
-
-      itemEl.appendChild(checkbox);
-      itemEl.appendChild(colorIndicator);
-      itemEl.appendChild(labelText);
-      itemEl.appendChild(volumeText);
-
-      viewerLayersList.appendChild(itemEl);
-    });
-  } else {
-    viewerLayersPanel.classList.remove('active');
-  }
+  if (!voxelModelRoot) return;
+  resetVoxelView();
 });
 
 // Map Event Handler: mousedown (Rectangle Start)
@@ -3322,10 +3643,12 @@ btnNewProject.addEventListener('click', () => {
     viewerLayersPanel.classList.remove('active');
     viewerLayersList.innerHTML = '';
 
-    if (voxelModelViewer.src) {
-      URL.revokeObjectURL(voxelModelViewer.src);
-      voxelModelViewer.removeAttribute('src');
+    if (currentVoxelModelUrl) {
+      URL.revokeObjectURL(currentVoxelModelUrl);
+      currentVoxelModelUrl = null;
     }
+    disposeVoxelModel();
+    mapOpacityControl.style.display = 'none';
 
     profile2dView.style.display = 'none';
     voxelModelViewer.style.display = 'block';

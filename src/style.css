@@ -917,6 +917,62 @@ html, body {
   display: block;
 }
 
+#voxel-model-viewer canvas {
+  display: block;
+  outline: none;
+}
+
+.voxel-viewer-tooltip {
+  position: fixed;
+  z-index: 30;
+  background: rgba(22, 22, 26, 0.9);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+  display: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  white-space: nowrap;
+}
+
+.voxel-viewer-tooltip strong {
+  color: #a5b4fc;
+}
+
+.map-opacity-control {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.map-opacity-control label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: #a5b4fc;
+  margin-bottom: 8px;
+}
+
+.map-opacity-value {
+  float: right;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.map-opacity-control input[type="range"] {
+  width: 100%;
+  accent-color: #6366f1;
+  cursor: pointer;
+}
+
 /* Floating Layers Panel inside 3D Viewer */
 .viewer-layers-panel {
   position: absolute;
