@@ -1691,15 +1691,13 @@ async function generateVoxelModel(options: GenerateOptions) {
         z_min: zMin,
         z_max: zMax,
         dz: 1.0,
-        anisotropy_ratio: 50,
-        step_size: 0.5,
         soil_colors: filteredSoilColors,
         deterministic: options.deterministic,
         remove_preexcavated: options.removePreexcavated,
         ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
 
-      console.log('Sending 3D GLB export request payload:', payload);
+      //console.log('Sending 3D GLB export request payload:', payload);
 
       // 7. API Request
       response = await fetch(`${API_URL}/api/voxels/export/glb/3d`, {
@@ -1758,29 +1756,23 @@ async function generateVoxelModel(options: GenerateOptions) {
       const payload = {
         soil_profiles: soilProfilesPayload,
         dx: 1.0,
-        z_min: Math.round(minZ),
-        z_max: Math.round(maxZ),
         dz: 0.25,
-        anisotropy_ratio: 50,
-        step_size: 0.5,
-        reference_line: {
-          points: rdPoints.map(p => p.alt !== undefined ? [p.x, p.y, p.alt] : [p.x, p.y])
-        },
+        referenceline: rdPoints.map(p => p.alt !== undefined ? [p.x, p.y, p.alt] : [p.x, p.y]),
         soil_colors: filteredSoilColors,
         deterministic: options.deterministic,
         remove_preexcavated: options.removePreexcavated,
-        ...(options.flattenModel ? { flatten_model: true } : {}),
+        ...(options.flattenModel ? { flatten: true } : {}),
         ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
 
-      // console.log('Sending 2D GLB export request payload:', payload);
+      console.log('Sending 2D GLB export request payload:', payload);
 
-      // write to file waverdijk
+      // // write to debug file
       // const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       // const url = URL.createObjectURL(blob);
       // const a = document.createElement('a');
       // a.href = url;
-      // a.download = 'flattened.json';
+      // a.download = 'debug_2d.json';
       // a.click();
 
 

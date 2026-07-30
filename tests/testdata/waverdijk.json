@@ -1,0 +1,275 @@
+{
+  "version": "1.0.0",
+  "uploadedCpts": [
+    {
+      "cpt_name": "CPT000000074499",
+      "soil_profile": {
+        "soil_layers": [
+          {
+            "top": 0.22,
+            "bottom": -0.78,
+            "soil_code": "dense_sand"
+          },
+          {
+            "top": -0.78,
+            "bottom": -1.28,
+            "soil_code": "sand"
+          },
+          {
+            "top": -1.28,
+            "bottom": -1.78,
+            "soil_code": "silty_clay"
+          },
+          {
+            "top": -1.78,
+            "bottom": -3.78,
+            "soil_code": "peat"
+          },
+          {
+            "top": -3.78,
+            "bottom": -5.78,
+            "soil_code": "clay"
+          },
+          {
+            "top": -5.78,
+            "bottom": -6.78,
+            "soil_code": "silty_sand"
+          },
+          {
+            "top": -6.78,
+            "bottom": -9.28,
+            "soil_code": "silty_clay"
+          },
+          {
+            "top": -9.28,
+            "bottom": -9.78,
+            "soil_code": "peat"
+          },
+          {
+            "top": -9.78,
+            "bottom": -14.28,
+            "soil_code": "sand"
+          },
+          {
+            "top": -14.28,
+            "bottom": -14.78,
+            "soil_code": "dense_sand"
+          },
+          {
+            "top": -14.78,
+            "bottom": -15.28,
+            "soil_code": "sand"
+          }
+        ],
+        "c": null,
+        "x": 120741,
+        "y": 473882,
+        "location": "none"
+      },
+      "filename": "CPT000000074499.xml"
+    },
+    {
+      "cpt_name": "CPT000000074500",
+      "soil_profile": {
+        "soil_layers": [
+          {
+            "top": -2.11,
+            "bottom": -2.61,
+            "soil_code": "silty_sand"
+          },
+          {
+            "top": -2.61,
+            "bottom": -4.11,
+            "soil_code": "peat"
+          },
+          {
+            "top": -4.11,
+            "bottom": -9.11,
+            "soil_code": "clay"
+          },
+          {
+            "top": -9.11,
+            "bottom": -9.61,
+            "soil_code": "peat"
+          },
+          {
+            "top": -9.61,
+            "bottom": -15.11,
+            "soil_code": "sand"
+          },
+          {
+            "top": -15.11,
+            "bottom": -17.61,
+            "soil_code": "dense_sand"
+          }
+        ],
+        "c": null,
+        "x": 120712,
+        "y": 473994,
+        "location": "none"
+      },
+      "filename": "CPT000000074500.xml"
+    },
+    {
+      "cpt_name": "CPT000000074501",
+      "soil_profile": {
+        "soil_layers": [
+          {
+            "top": 0.41,
+            "bottom": -0.09,
+            "soil_code": "dense_sand"
+          },
+          {
+            "top": -0.09,
+            "bottom": -0.59,
+            "soil_code": "sand"
+          },
+          {
+            "top": -0.59,
+            "bottom": -1.09,
+            "soil_code": "silty_sand"
+          },
+          {
+            "top": -1.09,
+            "bottom": -1.59,
+            "soil_code": "clay"
+          },
+          {
+            "top": -1.59,
+            "bottom": -3.59,
+            "soil_code": "peat"
+          },
+          {
+            "top": -3.59,
+            "bottom": -5.59,
+            "soil_code": "clay"
+          },
+          {
+            "top": -5.59,
+            "bottom": -9.59,
+            "soil_code": "silty_clay"
+          },
+          {
+            "top": -9.59,
+            "bottom": -15.09,
+            "soil_code": "sand"
+          }
+        ],
+        "c": null,
+        "x": 120671,
+        "y": 474023,
+        "location": "none"
+      },
+      "filename": "CPT000000074501.xml"
+    },
+    {
+      "cpt_name": "CPT000000074502",
+      "soil_profile": {
+        "soil_layers": [
+          {
+            "top": -2.15,
+            "bottom": -2.65,
+            "soil_code": "silty_sand"
+          },
+          {
+            "top": -2.65,
+            "bottom": -3.65,
+            "soil_code": "clay"
+          },
+          {
+            "top": -3.65,
+            "bottom": -4.15,
+            "soil_code": "organic_clay"
+          },
+          {
+            "top": -4.15,
+            "bottom": -4.65,
+            "soil_code": "peat"
+          },
+          {
+            "top": -4.65,
+            "bottom": -5.15,
+            "soil_code": "organic_clay"
+          },
+          {
+            "top": -5.15,
+            "bottom": -8.65,
+            "soil_code": "clay"
+          },
+          {
+            "top": -8.65,
+            "bottom": -9.15,
+            "soil_code": "peat"
+          },
+          {
+            "top": -9.15,
+            "bottom": -9.65,
+            "soil_code": "silty_sand"
+          },
+          {
+            "top": -9.65,
+            "bottom": -11.15,
+            "soil_code": "sand"
+          },
+          {
+            "top": -11.15,
+            "bottom": -11.65,
+            "soil_code": "dense_sand"
+          },
+          {
+            "top": -11.65,
+            "bottom": -15.65,
+            "soil_code": "sand"
+          }
+        ],
+        "c": null,
+        "x": 120668,
+        "y": 474061,
+        "location": "none"
+      },
+      "filename": "CPT000000074502.xml"
+    }
+  ],
+  "uploadedFilenames": [
+    "CPT000000074499.xml",
+    "CPT000000074500.xml",
+    "CPT000000074501.xml",
+    "CPT000000074502.xml"
+  ],
+  "settings": {
+    "maxDistance": 20,
+    "minLayerheight": 0.5
+  },
+  "drawing": {
+    "type": "polyline",
+    "points": [
+      {
+        "lat": 52.25360541689417,
+        "lng": 4.883916378021241
+      },
+      {
+        "lat": 52.25321134444362,
+        "lng": 4.884570837020875
+      },
+      {
+        "lat": 52.25263993317178,
+        "lng": 4.885010719299317
+      },
+      {
+        "lat": 52.25201596992756,
+        "lng": 4.885493516921998
+      }
+    ]
+  },
+  "soilColors": {
+    "preexcavated": "#6f6664",
+    "organic_clay": "#32e052",
+    "clay": "#034b10",
+    "silty_clay": "#608233",
+    "silty_sand": "#d6e119",
+    "sand": "#fef341",
+    "dense_sand": "#fff000",
+    "peat": "#7b530b"
+  },
+  "soilSynonyms": {}
+}
