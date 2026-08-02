@@ -839,7 +839,7 @@ fileInputCpts.addEventListener('change', async () => {
       continue;
     }
 
-    let minLH = 0.5;
+    let minLH = 0.2;
     if (settingMinLayerheight) {
       const val = parseFloat(settingMinLayerheight.value);
       if (!isNaN(val)) {
@@ -2956,7 +2956,7 @@ btnDownloadBro.addEventListener('click', async () => {
         continue;
       }
 
-      let minLH = 0.5;
+      let minLH = 0.2;
       if (settingMinLayerheight) {
         const val = parseFloat(settingMinLayerheight.value);
         if (!isNaN(val)) {
@@ -3372,7 +3372,7 @@ if (settingMinLayerheight) {
   settingMinLayerheight.addEventListener('blur', () => {
     let val = parseFloat(settingMinLayerheight.value);
     if (isNaN(val)) {
-      val = 0.5;
+      val = 0.2;
     }
     const clamped = Math.min(2.0, Math.max(0.2, val));
     settingMinLayerheight.value = clamped.toFixed(1);
@@ -3450,7 +3450,7 @@ btnSaveProject.addEventListener('click', () => {
       }
     }
 
-    let minLayerheight = 0.5;
+    let minLayerheight = 0.2;
     if (settingMinLayerheight) {
       const val = parseFloat(settingMinLayerheight.value);
       if (!isNaN(val)) {
