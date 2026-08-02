@@ -268,6 +268,14 @@
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
             </svg>
           </button>
+          <div class="toolbar-divider" id="crosssection-toolbar-divider" style="display: none;"></div>
+          <button class="toolbar-btn" id="btn-draw-crosssection-map" title="Draw Cross-Section Line on Map" style="display: none;">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="5" cy="19" r="2" />
+              <circle cx="19" cy="5" r="2" />
+              <line x1="6.7" y1="17.3" x2="17.3" y2="6.7" />
+            </svg>
+          </button>
           <div class="toolbar-divider"></div>
           <button class="toolbar-btn" id="btn-signout" title="Log out">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -281,6 +289,11 @@
         <!-- Drawing Instructions Tooltip -->
         <div id="drawing-instructions" class="drawing-instructions">
           Select a drawing tool to begin.
+        </div>
+
+        <!-- Cross-Section Drawing Instructions (map) -->
+        <div id="map-crosssection-instructions" class="crosssection-instructions">
+          Click 2 points on the map to define a cross-section line. Press Esc to cancel.
         </div>
 
         <!-- Generate Voxel Model Button Container -->

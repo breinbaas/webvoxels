@@ -211,6 +211,9 @@ const btnDrawRect = document.getElementById('btn-draw-rect') as HTMLButtonElemen
 const btnDrawLine = document.getElementById('btn-draw-line') as HTMLButtonElement;
 const btnClearDraw = document.getElementById('btn-clear-draw') as HTMLButtonElement;
 const drawingInstructions = document.getElementById('drawing-instructions') as HTMLDivElement;
+const crosssectionToolbarDivider = document.getElementById('crosssection-toolbar-divider') as HTMLDivElement;
+const btnDrawCrosssectionMap = document.getElementById('btn-draw-crosssection-map') as HTMLButtonElement;
+const mapCrosssectionInstructions = document.getElementById('map-crosssection-instructions') as HTMLDivElement;
 const generateContainer = document.getElementById('generate-container') as HTMLDivElement;
 const btnGenerateVoxel = document.getElementById('btn-generate-voxel') as HTMLButtonElement;
 const btnGenerate2d = document.getElementById('btn-generate-2d') as HTMLButtonElement;
@@ -309,6 +312,13 @@ let crossSectionMarkerGroup: THREE.Group | null = null;
 let crossSectionMapLine: L.Polyline | null = null;
 let crossSectionMapMarkers: L.CircleMarker[] = [];
 
+// Cross-Section line drawing state (picking 2 points on the map instead of the 3D viewer)
+let mapCrossSectionDrawMode = false;
+let mapCrossSectionPickedPoints: { x: number; y: number }[] = [];
+let mapCrossSectionTempMarker: L.CircleMarker | null = null;
+let previousModeBeforeMapCrossSection: DrawingMode = 'view';
+let wasDrawingInstructionsActive = false;
+
 // Secondary Three.js viewer for the generated 2D cross-section result
 let csViewerInitialized = false;
 let csScene: THREE.Scene;
@@ -394,6 +404,7 @@ function animateVoxelViewer() {
 
 function disposeVoxelModel() {
   exitCrossSectionDrawMode();
+  exitMapCrossSectionDrawMode();
   if (voxelModelRoot) {
     voxelScene.remove(voxelModelRoot);
     voxelModelRoot.traverse((child) => {
@@ -741,6 +752,7 @@ function onVoxelMouseMove(event: MouseEvent) {
 
 function enterCrossSectionDrawMode() {
   if (!currentVoxel3dH5Blob || !voxelModelRoot) return;
+  exitMapCrossSectionDrawMode();
   crossSectionDrawMode = true;
   crossSectionPickedPoints = [];
   clearCrossSectionMarkers();
@@ -871,6 +883,40 @@ function segmentIntersectsRect(
   return t0 <= t1;
 }
 
+// Shared finish step for a cross-section line, wherever its 2 endpoints were picked (in the 3D
+// viewer or on the map): validate it actually crosses the model's real-world footprint, draw it
+// in both the 3D viewer and the map, and request the cross-section generation. Returns whether
+// the line was valid.
+function finalizeCrossSectionLine(rd1: { x: number; y: number }, rd2: { x: number; y: number }): boolean {
+  if (!voxelGeoBounds) return false;
+
+  const intersectsModel = segmentIntersectsRect(
+    rd1.x, rd1.y, rd2.x, rd2.y,
+    voxelGeoBounds.xMin, voxelGeoBounds.xMax, voxelGeoBounds.yMin, voxelGeoBounds.yMax
+  );
+
+  if (!intersectsModel) {
+    alert('The drawn line does not cross the 3D model. Please draw a line that intersects the model.');
+    return false;
+  }
+
+  clearCrossSectionMarkers();
+  if (voxelModelBox) {
+    const elevation = voxelModelBox.max.y;
+    const l1 = rdHorizontalToLocalGround(rd1.x, rd1.y, voxelGeoBounds);
+    const l2 = rdHorizontalToLocalGround(rd2.x, rd2.y, voxelGeoBounds);
+    const p1 = new THREE.Vector3(l1.x, elevation, l1.z);
+    const p2 = new THREE.Vector3(l2.x, elevation, l2.z);
+    addCrossSectionMarker(p1);
+    addCrossSectionMarker(p2);
+    drawCrossSectionLine(p1, p2);
+  }
+
+  showCrossSectionLineOnMap(rd1, rd2);
+  generateCrossSection(rd1, rd2);
+  return true;
+}
+
 function onVoxelViewerClick(event: MouseEvent) {
   if (!crossSectionDrawMode || !voxelModelRoot || !voxelModelBox || !voxelGeoBounds) return;
 
@@ -894,34 +940,23 @@ function onVoxelViewerClick(event: MouseEvent) {
   if (crossSectionPickedPoints.length === 2) {
     const [p1, p2] = crossSectionPickedPoints;
 
-    const box = voxelModelBox;
-    const intersectsModel = segmentIntersectsRect(
-      p1.x, p1.z, p2.x, p2.z,
-      box.min.x, box.max.x, box.min.z, box.max.z
-    );
+    // Invert the shared world-space transform (see voxelGeoCenter/onVoxelMouseMove) to recover
+    // the real-world RD (x, y) of each picked point.
+    const { cx, cy } = voxelGeoCenter(voxelGeoBounds);
+    const rd1 = { x: p1.x + cx, y: cy - p1.z };
+    const rd2 = { x: p2.x + cx, y: cy - p2.z };
 
-    if (!intersectsModel) {
-      alert('The drawn line does not cross the 3D model. Please draw a line that intersects the model.');
+    if (!finalizeCrossSectionLine(rd1, rd2)) {
       crossSectionPickedPoints = [];
       clearCrossSectionMarkers();
       return; // stay in draw mode so the user can immediately retry
     }
-
-    drawCrossSectionLine(p1, p2);
 
     crossSectionDrawMode = false;
     voxelControls.enabled = true;
     btnDrawCrosssection.classList.remove('active');
     crosssectionInstructions.classList.remove('active');
     voxelRenderer.domElement.style.cursor = 'default';
-
-    // Invert the shared world-space transform (see voxelGeoCenter/onVoxelMouseMove) to recover
-    // the real-world RD (x, y) of each picked point.
-    const { cx, cy } = voxelGeoCenter(voxelGeoBounds);
-    const rd1 = { x: p1.x + cx, y: cy - p1.z };
-    const rd2 = { x: p2.x + cx, y: cy - p2.z };
-    showCrossSectionLineOnMap(rd1, rd2);
-    generateCrossSection(rd1, rd2);
   }
 }
 
@@ -933,10 +968,86 @@ btnDrawCrosssection.addEventListener('click', () => {
   }
 });
 
-window.addEventListener('keydown', (e: KeyboardEvent) => {
-  if (e.key === 'Escape' && crossSectionDrawMode) {
-    exitCrossSectionDrawMode();
+// Draw a cross-section line by picking 2 points directly on the map instead of the 3D viewer.
+function enterMapCrossSectionDrawMode() {
+  if (!currentVoxel3dH5Blob || !voxelGeoBounds) return;
+  exitCrossSectionDrawMode();
+  mapCrossSectionDrawMode = true;
+  mapCrossSectionPickedPoints = [];
+  clearMapCrossSectionTempMarker();
+  clearCrossSectionMapLine();
+  clearCrossSectionMarkers();
+
+  // Suspend the rectangle/polyline map tools while picking - otherwise a plain click here would
+  // also be interpreted as a mousedown/click for whichever draw mode was previously active,
+  // clearing the drawing that was used to generate this very model.
+  previousModeBeforeMapCrossSection = currentMode;
+  currentMode = 'view';
+  wasDrawingInstructionsActive = drawingInstructions.classList.contains('active');
+  drawingInstructions.classList.remove('active');
+
+  btnDrawCrosssectionMap.classList.add('active');
+  mapCrosssectionInstructions.classList.add('active');
+  map.getContainer().style.cursor = 'crosshair';
+}
+
+function exitMapCrossSectionDrawMode() {
+  if (!mapCrossSectionDrawMode) return;
+  mapCrossSectionDrawMode = false;
+  mapCrossSectionPickedPoints = [];
+  clearMapCrossSectionTempMarker();
+
+  currentMode = previousModeBeforeMapCrossSection;
+  if (wasDrawingInstructionsActive) drawingInstructions.classList.add('active');
+
+  btnDrawCrosssectionMap.classList.remove('active');
+  mapCrosssectionInstructions.classList.remove('active');
+  map.getContainer().style.cursor = '';
+}
+
+function clearMapCrossSectionTempMarker() {
+  if (mapCrossSectionTempMarker) {
+    map.removeLayer(mapCrossSectionTempMarker);
+    mapCrossSectionTempMarker = null;
   }
+}
+
+btnDrawCrosssectionMap.addEventListener('click', () => {
+  if (mapCrossSectionDrawMode) {
+    exitMapCrossSectionDrawMode();
+  } else {
+    enterMapCrossSectionDrawMode();
+  }
+});
+
+// Map Event Handler: click (Cross-Section point picking)
+map.on('click', (e: L.LeafletMouseEvent) => {
+  if (!mapCrossSectionDrawMode) return;
+
+  const rd = wgs84ToRd(e.latlng.lat, e.latlng.lng);
+  mapCrossSectionPickedPoints.push(rd);
+
+  if (mapCrossSectionPickedPoints.length === 1) {
+    clearMapCrossSectionTempMarker();
+    mapCrossSectionTempMarker = L.circleMarker(e.latlng, {
+      radius: 5,
+      color: '#ec4899',
+      fillColor: '#fff',
+      fillOpacity: 1,
+      weight: 2
+    }).addTo(map);
+    return;
+  }
+
+  const [rd1, rd2] = mapCrossSectionPickedPoints;
+  exitMapCrossSectionDrawMode();
+  finalizeCrossSectionLine(rd1, rd2);
+});
+
+window.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key !== 'Escape') return;
+  if (crossSectionDrawMode) exitCrossSectionDrawMode();
+  if (mapCrossSectionDrawMode) exitMapCrossSectionDrawMode();
 });
 
 // Request a cross-section GLB from the h5 data of the currently loaded 3D model, using the
@@ -2475,7 +2586,10 @@ async function generateVoxelModel(options: GenerateOptions) {
   btnResetView.style.display = 'block';
   btnDownloadGlb.style.display = 'block';
   btnDrawCrosssection.style.display = 'none';
+  btnDrawCrosssectionMap.style.display = 'none';
+  crosssectionToolbarDivider.style.display = 'none';
   exitCrossSectionDrawMode();
+  exitMapCrossSectionDrawMode();
   closeCrossSectionPanel();
 
   // Show the loader overlay
@@ -2752,6 +2866,8 @@ async function generateVoxelModel(options: GenerateOptions) {
     const h5Part = responseForm.get('h5file');
     currentVoxel3dH5Blob = (isRectangle && h5Part instanceof Blob) ? h5Part : null;
     btnDrawCrosssection.style.display = currentVoxel3dH5Blob ? 'block' : 'none';
+    btnDrawCrosssectionMap.style.display = currentVoxel3dH5Blob ? 'block' : 'none';
+    crosssectionToolbarDivider.style.display = currentVoxel3dH5Blob ? 'block' : 'none';
 
     // Revoke previous URL if any to prevent memory leak
     if (currentVoxelModelUrl) {
@@ -2860,7 +2976,10 @@ btnGenerate2d.addEventListener('click', () => {
   btnResetView.style.display = 'none';
   btnDownloadGlb.style.display = 'none';
   btnDrawCrosssection.style.display = 'none';
+  btnDrawCrosssectionMap.style.display = 'none';
+  crosssectionToolbarDivider.style.display = 'none';
   exitCrossSectionDrawMode();
+  exitMapCrossSectionDrawMode();
   closeCrossSectionPanel();
   viewerLayersPanel.classList.remove('active');
   profile2dView.style.display = 'flex';
@@ -4149,8 +4268,11 @@ btnNewProject.addEventListener('click', () => {
     btnResetView.style.display = 'block';
     btnDownloadGlb.style.display = 'block';
     btnDrawCrosssection.style.display = 'none';
+    btnDrawCrosssectionMap.style.display = 'none';
+    crosssectionToolbarDivider.style.display = 'none';
     currentVoxel3dH5Blob = null;
     exitCrossSectionDrawMode();
+    exitMapCrossSectionDrawMode();
     closeCrossSectionPanel();
 
     // 7. Reset map view to the default view (Netherlands)
