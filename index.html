@@ -548,6 +548,76 @@
             </div>
           </div>
 
+          <div id="generate-kriging-options">
+            <div class="setting-item">
+              <div class="option-info">
+                <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+                <div class="option-text">
+                  <span class="option-title">K Range</span>
+                  <span class="option-desc">Kriging range parameter</span>
+                </div>
+              </div>
+              <div class="setting-input-wrapper">
+                <input type="number" id="generate-option-k-range" class="setting-input" value="200" min="0" step="1">
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="option-info">
+                <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+                <div class="option-text">
+                  <span class="option-title">Sill</span>
+                  <span class="option-desc">Kriging sill parameter</span>
+                </div>
+              </div>
+              <div class="setting-input-wrapper">
+                <input type="number" id="generate-option-sill" class="setting-input" value="1.0" min="0" step="0.1">
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="option-info">
+                <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+                <div class="option-text">
+                  <span class="option-title">Nugget</span>
+                  <span class="option-desc">Kriging nugget parameter</span>
+                </div>
+              </div>
+              <div class="setting-input-wrapper">
+                <input type="number" id="generate-option-nugget" class="setting-input" value="0.1" min="0" step="0.01">
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="option-info">
+                <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+                <div class="option-text">
+                  <span class="option-title">KNN</span>
+                  <span class="option-desc">Number of nearest neighbors</span>
+                </div>
+              </div>
+              <div class="setting-input-wrapper">
+                <input type="number" id="generate-option-knn" class="setting-input" value="10" min="1" step="1">
+              </div>
+            </div>
+          </div>
+
           <div class="setting-item">
             <div class="option-info">
               <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

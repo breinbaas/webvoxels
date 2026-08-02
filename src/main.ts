@@ -72,6 +72,10 @@ interface GenerateOptions {
   riskModel: boolean;
   deterministic: boolean;
   removePreexcavated: boolean;
+  kRange: number;
+  sill: number;
+  nugget: number;
+  knn: number;
 }
 
 const GENERATE_OPTIONS_STORAGE_KEY = 'webvoxel-generate-options';
@@ -79,7 +83,11 @@ const GENERATE_OPTIONS_STORAGE_KEY = 'webvoxel-generate-options';
 const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   riskModel: false,
   deterministic: false,
-  removePreexcavated: true
+  removePreexcavated: true,
+  kRange: 200,
+  sill: 1.0,
+  nugget: 0.1,
+  knn: 10
 };
 
 function loadGenerateOptions(): GenerateOptions {
@@ -251,6 +259,15 @@ const btnConfirmGenerateOptions = document.getElementById('btn-confirm-generate-
 const generateOptionRisk = document.getElementById('generate-option-risk') as HTMLInputElement;
 const generateOptionDeterministic = document.getElementById('generate-option-deterministic') as HTMLInputElement;
 const generateOptionRemovePreexcavated = document.getElementById('generate-option-remove-preexcavated') as HTMLInputElement;
+const generateKrigingOptions = document.getElementById('generate-kriging-options') as HTMLDivElement;
+const generateOptionKRange = document.getElementById('generate-option-k-range') as HTMLInputElement;
+const generateOptionSill = document.getElementById('generate-option-sill') as HTMLInputElement;
+const generateOptionNugget = document.getElementById('generate-option-nugget') as HTMLInputElement;
+const generateOptionKnn = document.getElementById('generate-option-knn') as HTMLInputElement;
+
+function updateKrigingOptionsVisibility() {
+  generateKrigingOptions.style.display = generateOptionDeterministic.checked ? 'none' : '';
+}
 
 // ==========================================
 // 3D Voxel Model Viewer (Three.js)
@@ -2144,6 +2161,12 @@ async function generateVoxelModel(options: GenerateOptions) {
         soil_colors: filteredSoilColors,
         deterministic: options.deterministic,
         remove_preexcavated: options.removePreexcavated,
+        ...(options.deterministic ? {} : {
+          k_range: options.kRange,
+          sill: options.sill,
+          nugget: options.nugget,
+          knn_num_neighbors: options.knn
+        }),
         ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
 
@@ -2220,6 +2243,12 @@ async function generateVoxelModel(options: GenerateOptions) {
         soil_colors: filteredSoilColors,
         deterministic: options.deterministic,
         remove_preexcavated: options.removePreexcavated,
+        ...(options.deterministic ? {} : {
+          k_range: options.kRange,
+          sill: options.sill,
+          nugget: options.nugget,
+          knn_num_neighbors: options.knn
+        }),
         ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
 
@@ -2320,15 +2349,26 @@ btnGenerateVoxel.addEventListener('click', () => {
   generateOptionRisk.checked = options.riskModel;
   generateOptionDeterministic.checked = options.deterministic;
   generateOptionRemovePreexcavated.checked = options.removePreexcavated;
+  generateOptionKRange.value = String(options.kRange);
+  generateOptionSill.value = String(options.sill);
+  generateOptionNugget.value = String(options.nugget);
+  generateOptionKnn.value = String(options.knn);
+  updateKrigingOptionsVisibility();
 
   generateOptionsOverlay.classList.add('active');
 });
+
+generateOptionDeterministic.addEventListener('change', updateKrigingOptionsVisibility);
 
 btnConfirmGenerateOptions.addEventListener('click', () => {
   const options: GenerateOptions = {
     riskModel: generateOptionRisk.checked,
     deterministic: generateOptionDeterministic.checked,
-    removePreexcavated: generateOptionRemovePreexcavated.checked
+    removePreexcavated: generateOptionRemovePreexcavated.checked,
+    kRange: parseFloat(generateOptionKRange.value) || DEFAULT_GENERATE_OPTIONS.kRange,
+    sill: parseFloat(generateOptionSill.value) || DEFAULT_GENERATE_OPTIONS.sill,
+    nugget: parseFloat(generateOptionNugget.value) || DEFAULT_GENERATE_OPTIONS.nugget,
+    knn: parseFloat(generateOptionKnn.value) || DEFAULT_GENERATE_OPTIONS.knn
   };
   saveGenerateOptions(options);
   generateOptionsOverlay.classList.remove('active');
