@@ -306,6 +306,8 @@ let currentVoxel3dH5Blob: Blob | null = null;
 let crossSectionDrawMode = false;
 let crossSectionPickedPoints: THREE.Vector3[] = [];
 let crossSectionMarkerGroup: THREE.Group | null = null;
+let crossSectionMapLine: L.Polyline | null = null;
+let crossSectionMapMarkers: L.CircleMarker[] = [];
 
 // Secondary Three.js viewer for the generated 2D cross-section result
 let csViewerInitialized = false;
@@ -742,6 +744,7 @@ function enterCrossSectionDrawMode() {
   crossSectionDrawMode = true;
   crossSectionPickedPoints = [];
   clearCrossSectionMarkers();
+  clearCrossSectionMapLine();
   voxelControls.enabled = false;
   btnDrawCrosssection.classList.add('active');
   crosssectionInstructions.classList.add('active');
@@ -752,6 +755,7 @@ function exitCrossSectionDrawMode() {
   crossSectionDrawMode = false;
   crossSectionPickedPoints = [];
   clearCrossSectionMarkers();
+  clearCrossSectionMapLine();
   voxelControls.enabled = true;
   btnDrawCrosssection.classList.remove('active');
   crosssectionInstructions.classList.remove('active');
@@ -770,6 +774,41 @@ function clearCrossSectionMarkers() {
     else material?.dispose();
   });
   crossSectionMarkerGroup = null;
+}
+
+// Mirror the drawn cross-section line on the Leaflet map (converted to WGS84), so its real-world
+// position is visible alongside the 3D pick.
+function showCrossSectionLineOnMap(rd1: { x: number; y: number }, rd2: { x: number; y: number }) {
+  clearCrossSectionMapLine();
+
+  const wgs1 = rdToWgs84(rd1.x, rd1.y);
+  const wgs2 = rdToWgs84(rd2.x, rd2.y);
+  const latlngs: L.LatLngExpression[] = [[wgs1.lat, wgs1.lng], [wgs2.lat, wgs2.lng]];
+
+  crossSectionMapLine = L.polyline(latlngs, {
+    color: '#ec4899',
+    weight: 3,
+    dashArray: '6 4'
+  }).addTo(map);
+
+  crossSectionMapMarkers = latlngs.map((latlng) =>
+    L.circleMarker(latlng, {
+      radius: 5,
+      color: '#ec4899',
+      fillColor: '#fff',
+      fillOpacity: 1,
+      weight: 2
+    }).addTo(map)
+  );
+}
+
+function clearCrossSectionMapLine() {
+  if (crossSectionMapLine) {
+    map.removeLayer(crossSectionMapLine);
+    crossSectionMapLine = null;
+  }
+  crossSectionMapMarkers.forEach(m => map.removeLayer(m));
+  crossSectionMapMarkers = [];
 }
 
 function addCrossSectionMarker(point: THREE.Vector3) {
@@ -801,8 +840,39 @@ function drawCrossSectionLine(p1: THREE.Vector3, p2: THREE.Vector3) {
 
 // Picking handler for the cross-section draw mode: registers up to 2 clicked points on the
 // model's surface, then converts them to real-world RD (x, y) and kicks off generation.
+// Standard Liang-Barsky segment/axis-aligned-rectangle clip test, used to check whether a
+// drawn line actually crosses the model's footprint (endpoints are allowed to lie outside it).
+function segmentIntersectsRect(
+  x0: number, z0: number, x1: number, z1: number,
+  xMin: number, xMax: number, zMin: number, zMax: number
+): boolean {
+  let t0 = 0, t1 = 1;
+  const dx = x1 - x0, dz = z1 - z0;
+  const checks: [number, number][] = [
+    [-dx, x0 - xMin],
+    [dx, xMax - x0],
+    [-dz, z0 - zMin],
+    [dz, zMax - z0]
+  ];
+  for (const [p, q] of checks) {
+    if (p === 0) {
+      if (q < 0) return false;
+    } else {
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+    }
+  }
+  return t0 <= t1;
+}
+
 function onVoxelViewerClick(event: MouseEvent) {
-  if (!crossSectionDrawMode || !voxelModelRoot || !voxelGeoBounds) return;
+  if (!crossSectionDrawMode || !voxelModelRoot || !voxelModelBox || !voxelGeoBounds) return;
 
   const rect = voxelRenderer.domElement.getBoundingClientRect();
   const mouse = new THREE.Vector2(
@@ -810,15 +880,33 @@ function onVoxelViewerClick(event: MouseEvent) {
     -((event.clientY - rect.top) / rect.height) * 2 + 1
   );
   voxelRaycaster.setFromCamera(mouse, voxelCamera);
-  const intersects = voxelRaycaster.intersectObject(voxelModelRoot, true);
-  if (intersects.length === 0) return;
 
-  const point = intersects[0].point.clone();
-  crossSectionPickedPoints.push(point);
+  // Intersect an infinite horizontal plane at the model's top surface rather than the model
+  // mesh itself, so the user can click beyond the model's footprint to start/end the line
+  // outside its limits. Whether the resulting line actually crosses the model is checked below.
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -voxelModelBox.max.y);
+  const point = new THREE.Vector3();
+  if (!voxelRaycaster.ray.intersectPlane(groundPlane, point)) return;
+
+  crossSectionPickedPoints.push(point.clone());
   addCrossSectionMarker(point);
 
   if (crossSectionPickedPoints.length === 2) {
     const [p1, p2] = crossSectionPickedPoints;
+
+    const box = voxelModelBox;
+    const intersectsModel = segmentIntersectsRect(
+      p1.x, p1.z, p2.x, p2.z,
+      box.min.x, box.max.x, box.min.z, box.max.z
+    );
+
+    if (!intersectsModel) {
+      alert('The drawn line does not cross the 3D model. Please draw a line that intersects the model.');
+      crossSectionPickedPoints = [];
+      clearCrossSectionMarkers();
+      return; // stay in draw mode so the user can immediately retry
+    }
+
     drawCrossSectionLine(p1, p2);
 
     crossSectionDrawMode = false;
@@ -832,6 +920,7 @@ function onVoxelViewerClick(event: MouseEvent) {
     const { cx, cy } = voxelGeoCenter(voxelGeoBounds);
     const rd1 = { x: p1.x + cx, y: cy - p1.z };
     const rd2 = { x: p2.x + cx, y: cy - p2.z };
+    showCrossSectionLineOnMap(rd1, rd2);
     generateCrossSection(rd1, rd2);
   }
 }
@@ -926,6 +1015,7 @@ function closeCrossSectionPanel() {
     currentCrossSectionModelUrl = null;
   }
   clearCrossSectionMarkers();
+  clearCrossSectionMapLine();
   requestAnimationFrame(() => resizeVoxelViewer());
 }
 
