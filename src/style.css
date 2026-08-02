@@ -705,6 +705,34 @@ html, body {
   position: relative;
   transition: height 0.5s cubic-bezier(0.16, 1, 0.3, 1), border-width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 2;
+  display: flex;
+  flex-direction: row;
+}
+
+/* Main 3D model panel: full width normally, shrinks when a cross-section is shown */
+.voxel-3d-panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.viewer-container.crosssection-active .voxel-3d-panel {
+  width: 50%;
+}
+
+/* Cross-Section (2D) result panel, shown to the right of the 3D model */
+.crosssection-panel {
+  position: relative;
+  width: 50%;
+  height: 100%;
+  flex-shrink: 0;
+  display: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.viewer-container.crosssection-active .crosssection-panel {
+  display: block;
 }
 
 .app-container.split-active .map-container {
@@ -859,6 +887,67 @@ html, body {
   transform: scale(1.05);
 }
 
+/* Draw Cross-Section Line Button */
+.crosssection-viewer-btn {
+  position: absolute;
+  top: 15px;
+  right: 135px; /* next to reset button */
+  z-index: 10;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(22, 22, 26, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.crosssection-viewer-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke: #fff;
+}
+
+.crosssection-viewer-btn:hover {
+  background: rgba(236, 72, 153, 0.8); /* pink hover */
+  border-color: transparent;
+  transform: scale(1.05);
+}
+
+.crosssection-viewer-btn.active {
+  background: rgba(236, 72, 153, 0.9);
+  border-color: transparent;
+}
+
+/* Cross-Section drawing instructions banner, shown over the 3D model panel */
+.crosssection-instructions {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: none;
+  background: rgba(22, 22, 26, 0.85);
+  color: #fff;
+  border: 1px solid rgba(236, 72, 153, 0.4);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.crosssection-instructions.active {
+  display: block;
+}
+
 /* Loading Overlay */
 .loading-overlay {
   position: fixed;
@@ -910,14 +999,14 @@ html, body {
   font-weight: 500;
 }
 
-#voxel-model-viewer {
+.voxel-viewer-canvas {
   width: 100%;
   height: 100%;
   background-color: #0b0f19;
   display: block;
 }
 
-#voxel-model-viewer canvas {
+.voxel-viewer-canvas canvas {
   display: block;
   outline: none;
 }

@@ -231,6 +231,10 @@ const voxelViewerTooltip = document.getElementById('voxel-viewer-tooltip') as HT
 // const btnCloseViewer = document.getElementById('btn-close-viewer') as HTMLButtonElement;
 const btnDownloadGlb = document.getElementById('btn-download-glb') as HTMLButtonElement;
 const btnResetView = document.getElementById('btn-reset-view') as HTMLButtonElement;
+const btnDrawCrosssection = document.getElementById('btn-draw-crosssection') as HTMLButtonElement;
+const crosssectionInstructions = document.getElementById('crosssection-instructions') as HTMLDivElement;
+const crosssectionViewerEl = document.getElementById('crosssection-viewer') as HTMLDivElement;
+const btnCloseCrosssection = document.getElementById('btn-close-crosssection') as HTMLButtonElement;
 const viewerLayersPanel = document.getElementById('viewer-layers-panel') as HTMLDivElement;
 const viewerLayersList = document.getElementById('viewer-layers-list') as HTMLDivElement;
 const riskLegendKey = document.getElementById('risk-legend-key') as HTMLDivElement;
@@ -294,6 +298,25 @@ let voxelRenderer: THREE.WebGLRenderer;
 let voxelControls: OrbitControls;
 const voxelRaycaster = new THREE.Raycaster();
 
+// The h5 voxel data for the currently loaded 3D (rectangle) model, needed as the input to the
+// cross-section API. Only set for 3D/rectangle models - the 2D/polyline endpoint doesn't return one.
+let currentVoxel3dH5Blob: Blob | null = null;
+
+// Cross-Section line drawing state (picking 2 points on the 3D model in the viewer)
+let crossSectionDrawMode = false;
+let crossSectionPickedPoints: THREE.Vector3[] = [];
+let crossSectionMarkerGroup: THREE.Group | null = null;
+
+// Secondary Three.js viewer for the generated 2D cross-section result
+let csViewerInitialized = false;
+let csScene: THREE.Scene;
+let csCamera: THREE.PerspectiveCamera;
+let csRenderer: THREE.WebGLRenderer;
+let csControls: OrbitControls;
+let csModelRoot: THREE.Object3D | null = null;
+let csModelBox: THREE.Box3 | null = null;
+let currentCrossSectionModelUrl: string | null = null;
+
 let voxelModelRoot: THREE.Object3D | null = null;
 let voxelModelBox: THREE.Box3 | null = null;
 let voxelGroundPlane: THREE.Mesh | null = null;
@@ -339,6 +362,7 @@ function initVoxelViewer() {
   voxelRenderer.domElement.addEventListener('mouseleave', () => {
     voxelViewerTooltip.style.display = 'none';
   });
+  voxelRenderer.domElement.addEventListener('click', onVoxelViewerClick);
 
   mapOpacitySlider.addEventListener('input', () => {
     const value = parseFloat(mapOpacitySlider.value) || 0;
@@ -367,6 +391,7 @@ function animateVoxelViewer() {
 }
 
 function disposeVoxelModel() {
+  exitCrossSectionDrawMode();
   if (voxelModelRoot) {
     voxelScene.remove(voxelModelRoot);
     voxelModelRoot.traverse((child) => {
@@ -706,6 +731,333 @@ function onVoxelMouseMove(event: MouseEvent) {
     Y: ${rdY.toFixed(1)} m<br>
     Z: ${rdZ.toFixed(1)} m NAP
   `;
+}
+
+// ==========================================
+// Cross-Section drawing (pick 2 points on the 3D model) + result viewer
+// ==========================================
+
+function enterCrossSectionDrawMode() {
+  if (!currentVoxel3dH5Blob || !voxelModelRoot) return;
+  crossSectionDrawMode = true;
+  crossSectionPickedPoints = [];
+  clearCrossSectionMarkers();
+  voxelControls.enabled = false;
+  btnDrawCrosssection.classList.add('active');
+  crosssectionInstructions.classList.add('active');
+  voxelRenderer.domElement.style.cursor = 'crosshair';
+}
+
+function exitCrossSectionDrawMode() {
+  crossSectionDrawMode = false;
+  crossSectionPickedPoints = [];
+  clearCrossSectionMarkers();
+  voxelControls.enabled = true;
+  btnDrawCrosssection.classList.remove('active');
+  crosssectionInstructions.classList.remove('active');
+  voxelRenderer.domElement.style.cursor = 'default';
+}
+
+function clearCrossSectionMarkers() {
+  if (!crossSectionMarkerGroup) return;
+  voxelScene.remove(crossSectionMarkerGroup);
+  crossSectionMarkerGroup.traverse((child) => {
+    const obj = child as THREE.Mesh | THREE.Line;
+    const geometry = (obj as any).geometry as THREE.BufferGeometry | undefined;
+    geometry?.dispose();
+    const material = (obj as any).material as THREE.Material | THREE.Material[] | undefined;
+    if (Array.isArray(material)) material.forEach((m) => m.dispose());
+    else material?.dispose();
+  });
+  crossSectionMarkerGroup = null;
+}
+
+function addCrossSectionMarker(point: THREE.Vector3) {
+  if (!crossSectionMarkerGroup) {
+    crossSectionMarkerGroup = new THREE.Group();
+    voxelScene.add(crossSectionMarkerGroup);
+  }
+  const scale = voxelModelBox ? voxelModelBox.getSize(new THREE.Vector3()).length() : 100;
+  const markerRadius = Math.max(scale * 0.006, 0.15);
+  const geo = new THREE.SphereGeometry(markerRadius, 16, 16);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xec4899, depthTest: false });
+  const marker = new THREE.Mesh(geo, mat);
+  marker.position.copy(point);
+  marker.renderOrder = 999;
+  crossSectionMarkerGroup.add(marker);
+}
+
+function drawCrossSectionLine(p1: THREE.Vector3, p2: THREE.Vector3) {
+  if (!crossSectionMarkerGroup) {
+    crossSectionMarkerGroup = new THREE.Group();
+    voxelScene.add(crossSectionMarkerGroup);
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+  const mat = new THREE.LineBasicMaterial({ color: 0xec4899, depthTest: false });
+  const line = new THREE.Line(geo, mat);
+  line.renderOrder = 999;
+  crossSectionMarkerGroup.add(line);
+}
+
+// Picking handler for the cross-section draw mode: registers up to 2 clicked points on the
+// model's surface, then converts them to real-world RD (x, y) and kicks off generation.
+function onVoxelViewerClick(event: MouseEvent) {
+  if (!crossSectionDrawMode || !voxelModelRoot || !voxelGeoBounds) return;
+
+  const rect = voxelRenderer.domElement.getBoundingClientRect();
+  const mouse = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  voxelRaycaster.setFromCamera(mouse, voxelCamera);
+  const intersects = voxelRaycaster.intersectObject(voxelModelRoot, true);
+  if (intersects.length === 0) return;
+
+  const point = intersects[0].point.clone();
+  crossSectionPickedPoints.push(point);
+  addCrossSectionMarker(point);
+
+  if (crossSectionPickedPoints.length === 2) {
+    const [p1, p2] = crossSectionPickedPoints;
+    drawCrossSectionLine(p1, p2);
+
+    crossSectionDrawMode = false;
+    voxelControls.enabled = true;
+    btnDrawCrosssection.classList.remove('active');
+    crosssectionInstructions.classList.remove('active');
+    voxelRenderer.domElement.style.cursor = 'default';
+
+    // Invert the shared world-space transform (see voxelGeoCenter/onVoxelMouseMove) to recover
+    // the real-world RD (x, y) of each picked point.
+    const { cx, cy } = voxelGeoCenter(voxelGeoBounds);
+    const rd1 = { x: p1.x + cx, y: cy - p1.z };
+    const rd2 = { x: p2.x + cx, y: cy - p2.z };
+    generateCrossSection(rd1, rd2);
+  }
+}
+
+btnDrawCrosssection.addEventListener('click', () => {
+  if (crossSectionDrawMode) {
+    exitCrossSectionDrawMode();
+  } else {
+    enterCrossSectionDrawMode();
+  }
+});
+
+window.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && crossSectionDrawMode) {
+    exitCrossSectionDrawMode();
+  }
+});
+
+// Request a cross-section GLB from the h5 data of the currently loaded 3D model, using the
+// real-world RD line the user drew, then display it in the split cross-section panel.
+async function generateCrossSection(p1: { x: number; y: number }, p2: { x: number; y: number }) {
+  if (!currentVoxel3dH5Blob) {
+    alert('No 3D voxel model available to generate a cross-section from.');
+    return;
+  }
+
+  loaderText.textContent = 'Generating Cross-Section...';
+  loadingOverlay.classList.add('active');
+
+  try {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    // The API deserializes "line" as a list of [x, y] float pairs: [[x1,y1],[x2,y2]].
+    const lineField = JSON.stringify([[round2(p1.x), round2(p1.y)], [round2(p2.x), round2(p2.y)]]);
+
+    const form = new FormData();
+    form.append('h5file', currentVoxel3dH5Blob, 'voxel_model_3d.h5');
+    form.append('line', lineField);
+
+    const response = await fetch(`${API_URL}/api/voxels/crosssection/3d`, {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'X-API-Key': API_KEY
+      },
+      body: form
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Server returned status ${response.status}. ${errText}`);
+    }
+
+    const responseForm = await response.formData();
+    const filePart = responseForm.get('file');
+    if (!filePart || !(filePart instanceof Blob)) {
+      throw new Error('Cross-section response did not contain a "file" part.');
+    }
+
+    if (currentCrossSectionModelUrl) {
+      URL.revokeObjectURL(currentCrossSectionModelUrl);
+    }
+    const modelUrl = URL.createObjectURL(filePart);
+    currentCrossSectionModelUrl = modelUrl;
+
+    openCrossSectionPanel();
+    loadCrossSectionModel(modelUrl, p1, p2);
+  } catch (error: any) {
+    console.error('Error generating cross-section:', error);
+    alert(`Failed to generate cross-section: ${error.message}`);
+  } finally {
+    loadingOverlay.classList.remove('active');
+    loaderText.textContent = 'Generating 3D Voxel Model...';
+  }
+}
+
+function openCrossSectionPanel() {
+  viewerContainer.classList.add('crosssection-active');
+  if (!csViewerInitialized) {
+    initCrossSectionViewer();
+  }
+  requestAnimationFrame(() => {
+    resizeVoxelViewer();
+    resizeCrossSectionViewer();
+  });
+}
+
+function closeCrossSectionPanel() {
+  viewerContainer.classList.remove('crosssection-active');
+  disposeCrossSectionModel();
+  if (currentCrossSectionModelUrl) {
+    URL.revokeObjectURL(currentCrossSectionModelUrl);
+    currentCrossSectionModelUrl = null;
+  }
+  clearCrossSectionMarkers();
+  requestAnimationFrame(() => resizeVoxelViewer());
+}
+
+btnCloseCrosssection.addEventListener('click', closeCrossSectionPanel);
+
+function initCrossSectionViewer() {
+  csViewerInitialized = true;
+
+  csScene = new THREE.Scene();
+  csScene.background = new THREE.Color(0x0b0f19);
+  csScene.fog = new THREE.Fog(0x0b0f19, 200, 5000);
+
+  csCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 50000);
+  csCamera.position.set(50, 40, 50);
+
+  csRenderer = new THREE.WebGLRenderer({ antialias: true });
+  csRenderer.setPixelRatio(window.devicePixelRatio);
+  crosssectionViewerEl.appendChild(csRenderer.domElement);
+
+  // Pan + zoom only - no rotate, so the view stays locked face-on to the cross-section plane.
+  csControls = new OrbitControls(csCamera, csRenderer.domElement);
+  csControls.enableDamping = true;
+  csControls.dampingFactor = 0.08;
+  csControls.minDistance = 0.1;
+  csControls.maxDistance = 20000;
+  csControls.enableRotate = false;
+  csControls.screenSpacePanning = true;
+  csControls.mouseButtons = {
+    LEFT: THREE.MOUSE.PAN,
+    MIDDLE: THREE.MOUSE.DOLLY,
+    RIGHT: THREE.MOUSE.PAN
+  };
+  csControls.touches = {
+    ONE: THREE.TOUCH.PAN,
+    TWO: THREE.TOUCH.DOLLY_PAN
+  };
+
+  const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+  csScene.add(ambient);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  dirLight.position.set(100, 200, 100);
+  csScene.add(dirLight);
+  const fillLight = new THREE.DirectionalLight(0x8899ff, 0.3);
+  fillLight.position.set(-100, 50, -100);
+  csScene.add(fillLight);
+
+  const resizeObserver = new ResizeObserver(() => resizeCrossSectionViewer());
+  resizeObserver.observe(crosssectionViewerEl);
+
+  resizeCrossSectionViewer();
+  animateCrossSectionViewer();
+}
+
+function resizeCrossSectionViewer() {
+  if (!csRenderer) return;
+  const width = crosssectionViewerEl.clientWidth || 1;
+  const height = crosssectionViewerEl.clientHeight || 1;
+  csCamera.aspect = width / height;
+  csCamera.updateProjectionMatrix();
+  csRenderer.setSize(width, height);
+}
+
+function animateCrossSectionViewer() {
+  requestAnimationFrame(animateCrossSectionViewer);
+  csControls.update();
+  csRenderer.render(csScene, csCamera);
+}
+
+function disposeCrossSectionModel() {
+  if (csModelRoot) {
+    csScene.remove(csModelRoot);
+    csModelRoot.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if ((mesh as any).isMesh) {
+        mesh.geometry.dispose();
+        const material = mesh.material;
+        if (Array.isArray(material)) material.forEach((m) => m.dispose());
+        else material?.dispose();
+      }
+    });
+    csModelRoot = null;
+  }
+  csModelBox = null;
+}
+
+// Load the generated cross-section GLB (built the same "raw" way as the 2D/polyline endpoint's
+// output, so the same -90deg X rotation applies to put elevation on Y), then frame the camera
+// to look straight at the cross-section plane (perpendicular to the drawn line).
+function loadCrossSectionModel(blobUrl: string, rd1: { x: number; y: number }, rd2: { x: number; y: number }) {
+  disposeCrossSectionModel();
+
+  const loader = new GLTFLoader();
+  loader.load(blobUrl, (gltf) => {
+    csModelRoot = gltf.scene;
+    csModelRoot.rotation.x = -Math.PI / 2;
+    csScene.add(csModelRoot);
+    csModelRoot.updateMatrixWorld(true);
+    csModelBox = new THREE.Box3().setFromObject(csModelRoot);
+
+    frameCrossSectionModel(rd1, rd2);
+  }, undefined, (error) => {
+    console.error('Failed to load GLB into cross-section viewer:', error);
+  });
+}
+
+function frameCrossSectionModel(rd1: { x: number; y: number }, rd2: { x: number; y: number }) {
+  if (!csModelRoot || !csModelBox) return;
+  const size = csModelBox.getSize(new THREE.Vector3());
+  const center = csModelBox.getCenter(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const dist = maxDim * 1.8;
+
+  csCamera.near = Math.max(maxDim / 1000, 0.01);
+  csCamera.far = Math.max(maxDim * 50, 5000);
+  csCamera.updateProjectionMatrix();
+
+  // World-space (post -90deg X rotation) direction perpendicular to the reference line: after
+  // rotation worldX = RD_X and worldZ = -RD_Y, so a line direction (dx, -dy) has horizontal
+  // normal (dy, dx). Position the camera along that normal, looking straight at the model, so
+  // that with rotate disabled the user only ever sees this face-on cross-section view.
+  const dx = rd2.x - rd1.x;
+  const dy = rd2.y - rd1.y;
+  let nx = dy;
+  let nz = dx;
+  const nLen = Math.hypot(nx, nz) || 1;
+  nx /= nLen;
+  nz /= nLen;
+
+  csControls.target.copy(center);
+  csCamera.up.set(0, 1, 0);
+  csCamera.position.set(center.x + nx * dist, center.y, center.z + nz * dist);
+  csControls.update();
 }
 
 initVoxelViewer();
@@ -2032,6 +2384,9 @@ async function generateVoxelModel(options: GenerateOptions) {
   voxelModelViewer.style.display = 'block';
   btnResetView.style.display = 'block';
   btnDownloadGlb.style.display = 'block';
+  btnDrawCrosssection.style.display = 'none';
+  exitCrossSectionDrawMode();
+  closeCrossSectionPanel();
 
   // Show the loader overlay
   loadingOverlay.classList.add('active');
@@ -2302,6 +2657,12 @@ async function generateVoxelModel(options: GenerateOptions) {
     currentVoxelVolumes = volumesData;
     isRiskModelActive = riskMode;
 
+    // The 3D/rectangle endpoint also returns an "h5file" part - the raw voxel data needed as
+    // input to the cross-section endpoint. The 2D/polyline endpoint doesn't return one.
+    const h5Part = responseForm.get('h5file');
+    currentVoxel3dH5Blob = (isRectangle && h5Part instanceof Blob) ? h5Part : null;
+    btnDrawCrosssection.style.display = currentVoxel3dH5Blob ? 'block' : 'none';
+
     // Revoke previous URL if any to prevent memory leak
     if (currentVoxelModelUrl) {
       URL.revokeObjectURL(currentVoxelModelUrl);
@@ -2408,6 +2769,9 @@ btnGenerate2d.addEventListener('click', () => {
   voxelModelViewer.style.display = 'none';
   btnResetView.style.display = 'none';
   btnDownloadGlb.style.display = 'none';
+  btnDrawCrosssection.style.display = 'none';
+  exitCrossSectionDrawMode();
+  closeCrossSectionPanel();
   viewerLayersPanel.classList.remove('active');
   profile2dView.style.display = 'flex';
 
@@ -3694,6 +4058,10 @@ btnNewProject.addEventListener('click', () => {
     voxelModelViewer.style.display = 'block';
     btnResetView.style.display = 'block';
     btnDownloadGlb.style.display = 'block';
+    btnDrawCrosssection.style.display = 'none';
+    currentVoxel3dH5Blob = null;
+    exitCrossSectionDrawMode();
+    closeCrossSectionPanel();
 
     // 7. Reset map view to the default view (Netherlands)
     map.setView([52.1326, 5.2913], 8);
