@@ -328,6 +328,7 @@ let csRenderer: THREE.WebGLRenderer;
 let csControls: OrbitControls;
 let csModelRoot: THREE.Object3D | null = null;
 let csModelBox: THREE.Box3 | null = null;
+let csHeightGridGroup: THREE.Group | null = null;
 let currentCrossSectionModelUrl: string | null = null;
 
 // The h5 voxel data for the currently generated cross-section, plus the RD line used to
@@ -1275,6 +1276,114 @@ function disposeCrossSectionModel() {
     csModelRoot = null;
   }
   csModelBox = null;
+  disposeCrossSectionHeightGrid();
+}
+
+function disposeCrossSectionHeightGrid() {
+  if (!csHeightGridGroup) return;
+  csScene.remove(csHeightGridGroup);
+  csHeightGridGroup.traverse((child) => {
+    const line = child as THREE.Line;
+    if ((line as any).isLine) {
+      line.geometry.dispose();
+      (line.material as THREE.Material).dispose();
+    }
+    const sprite = child as THREE.Sprite;
+    if ((sprite as any).isSprite) {
+      (sprite.material as THREE.SpriteMaterial).map?.dispose();
+      sprite.material.dispose();
+    }
+  });
+  csHeightGridGroup = null;
+}
+
+// Small canvas-texture label ("NAP -5m" etc.) sized in world units so it stays legible
+// regardless of the cross-section model's real-world scale.
+function createHeightLabelSprite(text: string, worldHeight: number): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+  const fontSize = 48;
+  ctx.font = `${fontSize}px sans-serif`;
+  const textWidth = ctx.measureText(text).width;
+  canvas.width = Math.ceil(textWidth) + 16;
+  canvas.height = fontSize + 16;
+
+  ctx.font = `${fontSize}px sans-serif`;
+  ctx.fillStyle = '#a5b4fc';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 8, canvas.height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false, transparent: true });
+  const sprite = new THREE.Sprite(material);
+  const aspect = canvas.width / canvas.height;
+  sprite.scale.set(worldHeight * aspect, worldHeight, 1);
+  return sprite;
+}
+
+// Draw horizontal reference lines every 5m of NAP elevation across the cross-section, labeled
+// with the height. Built directly in world space (not parented to csModelRoot) since after the
+// -90deg X rotation applied in loadCrossSectionModel, world Y already equals absolute NAP height
+// (see the comment in frameCrossSectionModel), so the grid needs no further transform.
+const HEIGHT_GRID_INTERVAL = 5;
+
+function buildCrossSectionHeightGrid(rd1: { x: number; y: number }, rd2: { x: number; y: number }) {
+  disposeCrossSectionHeightGrid();
+  if (!csModelBox) return;
+
+  const box = csModelBox;
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
+  // Tangent direction along the drawn line, in the same post-rotation world space used in
+  // frameCrossSectionModel (worldX = RD_X, worldZ = -RD_Y).
+  const dx = rd2.x - rd1.x;
+  const dy = rd2.y - rd1.y;
+  let tx = dx;
+  let tz = -dy;
+  const tLen = Math.hypot(tx, tz) || 1;
+  tx /= tLen;
+  tz /= tLen;
+
+  const halfLength = (Math.hypot(size.x, size.z) / 2) * 1.1 || maxDim;
+  const labelHeight = maxDim * 0.035;
+
+  const yMin = Math.floor(box.min.y / HEIGHT_GRID_INTERVAL) * HEIGHT_GRID_INTERVAL;
+  const yMax = Math.ceil(box.max.y / HEIGHT_GRID_INTERVAL) * HEIGHT_GRID_INTERVAL;
+
+  const group = new THREE.Group();
+  const lineMaterial = new THREE.LineBasicMaterial({
+    color: 0x4b5563,
+    transparent: true,
+    opacity: 0.6,
+    depthTest: false,
+    depthWrite: false
+  });
+
+  for (let y = yMin; y <= yMax + 1e-6; y += HEIGHT_GRID_INTERVAL) {
+    const p1 = new THREE.Vector3(center.x - tx * halfLength, y, center.z - tz * halfLength);
+    const p2 = new THREE.Vector3(center.x + tx * halfLength, y, center.z + tz * halfLength);
+    const geometry = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+    const line = new THREE.Line(geometry, lineMaterial);
+    line.renderOrder = 999;
+    group.add(line);
+
+    const roundedY = Math.round(y) === 0 ? 0 : Math.round(y);
+    const sign = roundedY >= 0 ? '+' : '-';
+    const label = createHeightLabelSprite(`NAP ${sign}${Math.abs(roundedY)}m`, labelHeight);
+    label.renderOrder = 1000;
+    label.position.set(
+      p1.x - tx * labelHeight * 2,
+      y,
+      p1.z - tz * labelHeight * 2
+    );
+    group.add(label);
+  }
+
+  csScene.add(group);
+  csHeightGridGroup = group;
 }
 
 // Load the generated cross-section GLB (built the same "raw" way as the 2D/polyline endpoint's
@@ -1291,6 +1400,7 @@ function loadCrossSectionModel(blobUrl: string, rd1: { x: number; y: number }, r
     csModelRoot.updateMatrixWorld(true);
     csModelBox = new THREE.Box3().setFromObject(csModelRoot);
 
+    buildCrossSectionHeightGrid(rd1, rd2);
     frameCrossSectionModel(rd1, rd2);
   }, undefined, (error) => {
     console.error('Failed to load GLB into cross-section viewer:', error);
