@@ -238,6 +238,7 @@ const btnDrawCrosssection = document.getElementById('btn-draw-crosssection') as 
 const crosssectionInstructions = document.getElementById('crosssection-instructions') as HTMLDivElement;
 const crosssectionViewerEl = document.getElementById('crosssection-viewer') as HTMLDivElement;
 const btnCloseCrosssection = document.getElementById('btn-close-crosssection') as HTMLButtonElement;
+const btnDownloadStix = document.getElementById('btn-download-stix') as HTMLButtonElement;
 const viewerLayersPanel = document.getElementById('viewer-layers-panel') as HTMLDivElement;
 const viewerLayersList = document.getElementById('viewer-layers-list') as HTMLDivElement;
 const riskLegendKey = document.getElementById('risk-legend-key') as HTMLDivElement;
@@ -328,6 +329,11 @@ let csControls: OrbitControls;
 let csModelRoot: THREE.Object3D | null = null;
 let csModelBox: THREE.Box3 | null = null;
 let currentCrossSectionModelUrl: string | null = null;
+
+// The h5 voxel data for the currently generated cross-section, plus the RD line used to
+// generate it, kept so the "download STIX" button can resend them without re-picking points.
+let currentCrossSection2dH5Blob: Blob | null = null;
+let currentCrossSectionLineField: string | null = null;
 
 let voxelModelRoot: THREE.Object3D | null = null;
 let voxelModelBox: THREE.Box3 | null = null;
@@ -1096,6 +1102,13 @@ async function generateCrossSection(p1: { x: number; y: number }, p2: { x: numbe
     const modelUrl = URL.createObjectURL(filePart);
     currentCrossSectionModelUrl = modelUrl;
 
+    // The endpoint also returns the raw h5 voxel data for this cross-section (voxel_model_2d.h5),
+    // kept alongside the line used to generate it so it can be resent to the STIX endpoint later.
+    const h5Part = responseForm.get('h5file');
+    currentCrossSection2dH5Blob = h5Part instanceof Blob ? h5Part : null;
+    currentCrossSectionLineField = lineField;
+    btnDownloadStix.style.display = currentCrossSection2dH5Blob ? 'flex' : 'none';
+
     openCrossSectionPanel();
     loadCrossSectionModel(modelUrl, p1, p2);
   } catch (error: any) {
@@ -1125,12 +1138,64 @@ function closeCrossSectionPanel() {
     URL.revokeObjectURL(currentCrossSectionModelUrl);
     currentCrossSectionModelUrl = null;
   }
+  currentCrossSection2dH5Blob = null;
+  currentCrossSectionLineField = null;
+  btnDownloadStix.style.display = 'none';
   clearCrossSectionMarkers();
   clearCrossSectionMapLine();
   requestAnimationFrame(() => resizeVoxelViewer());
 }
 
 btnCloseCrosssection.addEventListener('click', closeCrossSectionPanel);
+
+// Send the cross-section's h5 voxel data + line back to the API to generate a D-Stability
+// stix file, then download the returned zip.
+btnDownloadStix.addEventListener('click', async () => {
+  if (!currentCrossSection2dH5Blob || !currentCrossSectionLineField) return;
+
+  loaderText.textContent = 'Generating STIX File...';
+  loadingOverlay.classList.add('active');
+
+  try {
+    const form = new FormData();
+    form.append('h5file', currentCrossSection2dH5Blob, 'voxel_model_2d.h5');
+    form.append('line', currentCrossSectionLineField);
+
+    const response = await fetch(`${API_URL}/api/voxels/crosssection/stix`, {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'X-API-Key': API_KEY
+      },
+      body: form
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Server returned status ${response.status}. ${errText}`);
+    }
+
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+    const filename = filenameMatch ? filenameMatch[1] : 'crosssection.stix';
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (error: any) {
+    console.error('Error generating STIX file:', error);
+    alert(`Failed to generate STIX file: ${error.message}`);
+  } finally {
+    loadingOverlay.classList.remove('active');
+    loaderText.textContent = 'Generating 3D Voxel Model...';
+  }
+});
 
 function initCrossSectionViewer() {
   csViewerInitialized = true;
