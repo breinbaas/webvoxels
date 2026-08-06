@@ -372,6 +372,15 @@ let currentVoxelModelUrl: string | null = null;
 let voxelGridHelper: THREE.GridHelper | null = null;
 let voxelNorthSouthLine: THREE.Line | null = null;
 
+// Identifies the rectangle/polyline geometry a voxel model was generated from, so a regeneration
+// on that exact same drawing (e.g. after tweaking generate options, including toggling "Use
+// distances as horizontal") can keep the camera where the user left it instead of re-framing,
+// while a genuinely new drawing still gets auto-framed. Restoring across such a regeneration may
+// still require re-expressing the saved position/target in the new model's coordinate convention -
+// see convertVoxelCameraState() - since raw vs. centered/Y-up GLBs (loadVoxelModel) place the same
+// real-world point at different local coordinates.
+let lastGeneratedShapeKey: string | null = null;
+
 function initVoxelViewer() {
   voxelScene = new THREE.Scene();
   voxelScene.background = new THREE.Color(0x0b0f19);
@@ -475,7 +484,15 @@ function removeVoxelGroundPlane() {
 // Rotating the loaded root -90 deg about X maps (x, y, z) -> (x, z, -y), putting elevation on Y
 // and flipping north/south the same way the backend's own center_and_y_up swap does, so both
 // model types end up oriented (and mouse-controlled) the same way.
-function loadVoxelModel(blobUrl: string, geoBounds: VoxelGeoBounds | null, rawOrientation: boolean) {
+//
+// restoreCameraState, when given, is applied instead of the usual auto-frame - used when
+// regenerating on the exact same drawn rectangle/polyline, so the user's current view is kept.
+function loadVoxelModel(
+  blobUrl: string,
+  geoBounds: VoxelGeoBounds | null,
+  rawOrientation: boolean,
+  restoreCameraState?: { position: THREE.Vector3; target: THREE.Vector3 } | null
+) {
   disposeVoxelModel();
   voxelGeoBounds = geoBounds;
 
@@ -489,7 +506,14 @@ function loadVoxelModel(blobUrl: string, geoBounds: VoxelGeoBounds | null, rawOr
     voxelModelRoot.updateMatrixWorld(true);
     voxelModelBox = new THREE.Box3().setFromObject(voxelModelRoot);
 
-    frameVoxelModel();
+    if (restoreCameraState) {
+      updateVoxelCameraClipping();
+      voxelCamera.position.copy(restoreCameraState.position);
+      voxelControls.target.copy(restoreCameraState.target);
+      voxelControls.update();
+    } else {
+      frameVoxelModel();
+    }
     updateVoxelGroundHelpers();
     populateVoxelLegend(voxelModelRoot);
 
@@ -504,6 +528,18 @@ function loadVoxelModel(blobUrl: string, geoBounds: VoxelGeoBounds | null, rawOr
   });
 }
 
+// Update the camera's near/far clipping planes to fit the currently loaded model's scale.
+// Split out of frameVoxelModel() so a camera restore (same-shape regeneration) can still adjust
+// clipping for the new model's size without also resetting its position.
+function updateVoxelCameraClipping() {
+  if (!voxelModelBox) return;
+  const size = voxelModelBox.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  voxelCamera.near = Math.max(maxDim / 1000, 0.01);
+  voxelCamera.far = Math.max(maxDim * 50, 5000);
+  voxelCamera.updateProjectionMatrix();
+}
+
 // Frame the camera/orbit target around the currently loaded model. Also used by the Reset button.
 function frameVoxelModel() {
   if (!voxelModelRoot || !voxelModelBox) return;
@@ -512,9 +548,7 @@ function frameVoxelModel() {
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
   const dist = maxDim * 1.5;
 
-  voxelCamera.near = Math.max(maxDim / 1000, 0.01);
-  voxelCamera.far = Math.max(maxDim * 50, 5000);
-  voxelCamera.updateProjectionMatrix();
+  updateVoxelCameraClipping();
 
   voxelControls.target.copy(center);
   voxelCamera.position.set(center.x + dist, center.y + dist * 0.7, center.z + dist);
@@ -586,6 +620,28 @@ function voxelGeoCenter(bounds: VoxelGeoBounds) {
   };
 }
 
+// Re-express a saved camera position/target (captured while a model with `fromBounds`'s
+// convention was loaded) in the local coordinate space of a model using `toBounds`'s convention
+// instead - so a camera can be carried over across a regeneration that switches between raw and
+// centered/Y-up GLBs (e.g. toggling "Use distances as horizontal" on the same polyline), or
+// between two centered models with different centers (e.g. changing the left/right distances).
+// world = local + (cx, cz, -cy) is the inverse of voxelGeoCenter's centering/axis-swap, shared by
+// both conventions (raw is just cx = cy = cz = 0), so converting between any two local spaces is
+// local_to = local_from + (cx_from - cx_to, cz_from - cz_to, cy_to - cy_from).
+function convertVoxelCameraState(
+  state: { position: THREE.Vector3; target: THREE.Vector3 },
+  fromBounds: VoxelGeoBounds,
+  toBounds: VoxelGeoBounds
+): { position: THREE.Vector3; target: THREE.Vector3 } {
+  const from = voxelGeoCenter(fromBounds);
+  const to = voxelGeoCenter(toBounds);
+  const offset = new THREE.Vector3(from.cx - to.cx, from.cz - to.cz, to.cy - from.cy);
+  return {
+    position: state.position.clone().add(offset),
+    target: state.target.clone().add(offset)
+  };
+}
+
 // Given a real-world RD (x, y) point, return its local mesh (x, z) position at the model's top
 // surface, i.e. the plane the aerial photo drapes onto.
 function rdHorizontalToLocalGround(rdX: number, rdY: number, bounds: VoxelGeoBounds) {
@@ -644,11 +700,12 @@ function loadVoxelGroundMapTexture() {
     geo.setIndex([0, 1, 2, 2, 1, 3]);
     geo.computeVertexNormals();
 
+    const sliderOpacity = parseFloat(mapOpacitySlider.value);
     const mat = new THREE.MeshBasicMaterial({
       map: texture,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: parseFloat(mapOpacitySlider.value) || 0.7
+      opacity: Number.isNaN(sliderOpacity) ? 0.7 : sliderOpacity
     });
     voxelGroundPlane = new THREE.Mesh(geo, mat);
     voxelGroundPlane.renderOrder = -1;
@@ -2768,6 +2825,21 @@ btnClearDraw.addEventListener('click', () => {
   setDrawingMode('view');
 });
 
+// Identifies the exact rectangle/polyline geometry currently drawn, so a regeneration can tell
+// whether it's re-running on the same shape (camera should stay put) or a new one (re-frame).
+function computeDrawingShapeKey(): string | null {
+  if (activeDrawingLayer instanceof L.Rectangle) {
+    const bounds = activeDrawingLayer.getBounds();
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    return `rect:${sw.lat.toFixed(7)},${sw.lng.toFixed(7)},${ne.lat.toFixed(7)},${ne.lng.toFixed(7)}`;
+  }
+  if (activeDrawingLayer instanceof L.Polyline) {
+    return `line:${polylinePoints.map(p => `${p.lat.toFixed(7)},${p.lng.toFixed(7)}`).join('|')}`;
+  }
+  return null;
+}
+
 async function generateVoxelModel(options: GenerateOptions) {
   const riskMode = options.riskModel;
   if (uploadedCpts.length === 0) {
@@ -2782,6 +2854,16 @@ async function generateVoxelModel(options: GenerateOptions) {
     alert('Please draw a rectangle or a line on the map to define the generation area.');
     return;
   }
+
+  // Regenerating on the exact same drawing the current model came from: remember the camera so it
+  // can be restored (re-expressed in whatever coordinate convention the new model ends up using -
+  // see convertVoxelCameraState) after the new model loads, instead of re-framing from scratch.
+  const shapeKey = computeDrawingShapeKey();
+  const previousCameraSnapshot = (
+    shapeKey !== null && shapeKey === lastGeneratedShapeKey && voxelModelRoot && voxelGeoBounds
+  )
+    ? { position: voxelCamera.position.clone(), target: voxelControls.target.clone(), bounds: voxelGeoBounds }
+    : null;
 
   // Switch display back to 3D model viewer mode
   profile2dView.style.display = 'none';
@@ -3131,7 +3213,12 @@ async function generateVoxelModel(options: GenerateOptions) {
     // Orientation follows the bounds' own raw flag, since that's exactly what tracks whether the
     // backend centered/Y-up-swapped the GLB (rectangle, and now distance-filtered polyline calls)
     // or returned raw absolute coordinates (plain polyline calls).
-    loadVoxelModel(modelUrl, lastGeoBounds, lastGeoBounds ? lastGeoBounds.raw : !isRectangle);
+    const isRaw = lastGeoBounds ? lastGeoBounds.raw : !isRectangle;
+    const cameraStateToRestore = (previousCameraSnapshot && lastGeoBounds)
+      ? convertVoxelCameraState(previousCameraSnapshot, previousCameraSnapshot.bounds, lastGeoBounds)
+      : null;
+    loadVoxelModel(modelUrl, lastGeoBounds, isRaw, cameraStateToRestore);
+    lastGeneratedShapeKey = shapeKey;
 
     // Open split view
     appContainer.classList.add('split-active');
