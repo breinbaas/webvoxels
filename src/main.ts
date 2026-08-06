@@ -72,10 +72,14 @@ interface GenerateOptions {
   riskModel: boolean;
   deterministic: boolean;
   removePreexcavated: boolean;
+  dx: number;
+  dy: number;
+  dz: number;
   kRange: number;
   sill: number;
   nugget: number;
   knn: number;
+  anisotropyRatio: number;
   useDistances: boolean;
   distanceLeft: number;
   distanceRight: number;
@@ -87,10 +91,14 @@ const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   riskModel: false,
   deterministic: false,
   removePreexcavated: true,
+  dx: 5,
+  dy: 5,
+  dz: 0.5,
   kRange: 200,
   sill: 1.0,
   nugget: 0.1,
   knn: 10,
+  anisotropyRatio: 50,
   useDistances: false,
   distanceLeft: 20,
   distanceRight: 30
@@ -274,11 +282,15 @@ const btnConfirmGenerateOptions = document.getElementById('btn-confirm-generate-
 const generateOptionRisk = document.getElementById('generate-option-risk') as HTMLInputElement;
 const generateOptionDeterministic = document.getElementById('generate-option-deterministic') as HTMLInputElement;
 const generateOptionRemovePreexcavated = document.getElementById('generate-option-remove-preexcavated') as HTMLInputElement;
+const generateOptionDx = document.getElementById('generate-option-dx') as HTMLInputElement;
+const generateOptionDy = document.getElementById('generate-option-dy') as HTMLInputElement;
+const generateOptionDz = document.getElementById('generate-option-dz') as HTMLInputElement;
 const generateKrigingOptions = document.getElementById('generate-kriging-options') as HTMLDivElement;
 const generateOptionKRange = document.getElementById('generate-option-k-range') as HTMLInputElement;
 const generateOptionSill = document.getElementById('generate-option-sill') as HTMLInputElement;
 const generateOptionNugget = document.getElementById('generate-option-nugget') as HTMLInputElement;
 const generateOptionKnn = document.getElementById('generate-option-knn') as HTMLInputElement;
+const generateOptionAnisotropyRatio = document.getElementById('generate-option-anisotropy-ratio') as HTMLInputElement;
 const generatePolylineOptions = document.getElementById('generate-polyline-options') as HTMLDivElement;
 const generateOptionUseDistances = document.getElementById('generate-option-use-distances') as HTMLInputElement;
 const generateDistanceFields = document.getElementById('generate-distance-fields') as HTMLDivElement;
@@ -2902,13 +2914,13 @@ async function generateVoxelModel(options: GenerateOptions) {
         soil_profiles: soilProfilesPayload,
         x_min: xMin,
         x_max: xMax,
-        dx: 5,
+        dx: options.dx,
         y_min: yMin,
         y_max: yMax,
-        dy: 5,
+        dy: options.dy,
         z_min: zMin,
         z_max: zMax,
-        dz: 1.0,
+        dz: options.dz,
         soil_colors: filteredSoilColors,
         deterministic: options.deterministic,
         remove_preexcavated: options.removePreexcavated,
@@ -2916,7 +2928,8 @@ async function generateVoxelModel(options: GenerateOptions) {
           k_range: options.kRange,
           sill: options.sill,
           nugget: options.nugget,
-          knn_num_neighbors: options.knn
+          knn_num_neighbors: options.knn,
+          anisotropy_ratio: options.anisotropyRatio
         }),
         ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
@@ -2994,11 +3007,11 @@ async function generateVoxelModel(options: GenerateOptions) {
         // x/y bounding box - the reference line + left/right distance define the footprint.
         const payload = {
           soil_profiles: soilProfilesPayload,
-          dx: 5,
-          dy: 5,
+          dx: options.dx,
+          dy: options.dy,
           z_min: minZ,
           z_max: maxZ,
-          dz: 1.0,
+          dz: options.dz,
           referenceline: rdPoints.map(p => p.alt !== undefined ? [p.x, p.y, p.alt] : [p.x, p.y]),
           soil_colors: filteredSoilColors,
           deterministic: options.deterministic,
@@ -3008,7 +3021,8 @@ async function generateVoxelModel(options: GenerateOptions) {
             k_range: options.kRange,
             sill: options.sill,
             nugget: options.nugget,
-            knn_num_neighbors: options.knn
+            knn_num_neighbors: options.knn,
+            anisotropy_ratio: options.anisotropyRatio
           }),
           ...(riskMode ? { distance_filter: [20, 50] } : {})
         };
@@ -3030,7 +3044,7 @@ async function generateVoxelModel(options: GenerateOptions) {
         const payload = {
           soil_profiles: soilProfilesPayload,
           dx: 1.0,
-          dz: 0.25,
+          dz: options.dz,
           referenceline: rdPoints.map(p => p.alt !== undefined ? [p.x, p.y, p.alt] : [p.x, p.y]),
           soil_colors: filteredSoilColors,
           deterministic: options.deterministic,
@@ -3039,7 +3053,8 @@ async function generateVoxelModel(options: GenerateOptions) {
             k_range: options.kRange,
             sill: options.sill,
             nugget: options.nugget,
-            knn_num_neighbors: options.knn
+            knn_num_neighbors: options.knn,
+            anisotropy_ratio: options.anisotropyRatio
           }),
           ...(riskMode ? { distance_filter: [20, 50] } : {})
         };
@@ -3154,10 +3169,14 @@ btnGenerateVoxel.addEventListener('click', () => {
   generateOptionRisk.checked = options.riskModel;
   generateOptionDeterministic.checked = options.deterministic;
   generateOptionRemovePreexcavated.checked = options.removePreexcavated;
+  generateOptionDx.value = String(options.dx);
+  generateOptionDy.value = String(options.dy);
+  generateOptionDz.value = String(options.dz);
   generateOptionKRange.value = String(options.kRange);
   generateOptionSill.value = String(options.sill);
   generateOptionNugget.value = String(options.nugget);
   generateOptionKnn.value = String(options.knn);
+  generateOptionAnisotropyRatio.value = String(options.anisotropyRatio);
   generateOptionUseDistances.checked = options.useDistances;
   generateOptionDistanceLeft.value = String(options.distanceLeft);
   generateOptionDistanceRight.value = String(options.distanceRight);
@@ -3176,10 +3195,14 @@ btnConfirmGenerateOptions.addEventListener('click', () => {
     riskModel: generateOptionRisk.checked,
     deterministic: generateOptionDeterministic.checked,
     removePreexcavated: generateOptionRemovePreexcavated.checked,
+    dx: parseFloat(generateOptionDx.value) || DEFAULT_GENERATE_OPTIONS.dx,
+    dy: parseFloat(generateOptionDy.value) || DEFAULT_GENERATE_OPTIONS.dy,
+    dz: parseFloat(generateOptionDz.value) || DEFAULT_GENERATE_OPTIONS.dz,
     kRange: parseFloat(generateOptionKRange.value) || DEFAULT_GENERATE_OPTIONS.kRange,
     sill: parseFloat(generateOptionSill.value) || DEFAULT_GENERATE_OPTIONS.sill,
     nugget: parseFloat(generateOptionNugget.value) || DEFAULT_GENERATE_OPTIONS.nugget,
     knn: parseFloat(generateOptionKnn.value) || DEFAULT_GENERATE_OPTIONS.knn,
+    anisotropyRatio: parseFloat(generateOptionAnisotropyRatio.value) || DEFAULT_GENERATE_OPTIONS.anisotropyRatio,
     useDistances: generateOptionUseDistances.checked,
     distanceLeft: parseFloat(generateOptionDistanceLeft.value) || DEFAULT_GENERATE_OPTIONS.distanceLeft,
     distanceRight: parseFloat(generateOptionDistanceRight.value) || DEFAULT_GENERATE_OPTIONS.distanceRight
