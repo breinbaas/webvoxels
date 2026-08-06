@@ -229,6 +229,7 @@ const appContainer = document.getElementById('app-container') as HTMLDivElement;
 const mapContainer = document.getElementById('map-container') as HTMLDivElement;
 const viewerContainer = document.getElementById('viewer-container') as HTMLDivElement;
 const splitDivider = document.getElementById('split-divider') as HTMLDivElement;
+const voxel3dPanel = document.getElementById('voxel-3d-panel') as HTMLDivElement;
 const voxelModelViewer = document.getElementById('voxel-model-viewer') as HTMLDivElement;
 const voxelViewerTooltip = document.getElementById('voxel-viewer-tooltip') as HTMLDivElement;
 // const btnCloseViewer = document.getElementById('btn-close-viewer') as HTMLButtonElement;
@@ -2757,6 +2758,7 @@ async function generateVoxelModel(options: GenerateOptions) {
 
   // Switch display back to 3D model viewer mode
   profile2dView.style.display = 'none';
+  voxel3dPanel.style.display = 'block';
   voxelModelViewer.style.display = 'block';
   btnResetView.style.display = 'block';
   btnDownloadGlb.style.display = 'block';
@@ -3147,6 +3149,7 @@ btnGenerate2d.addEventListener('click', () => {
   }
 
   // Switch visual displays
+  voxel3dPanel.style.display = 'none';
   voxelModelViewer.style.display = 'none';
   btnResetView.style.display = 'none';
   btnDownloadGlb.style.display = 'none';
@@ -4439,6 +4442,7 @@ btnNewProject.addEventListener('click', () => {
     mapOpacityControl.style.display = 'none';
 
     profile2dView.style.display = 'none';
+    voxel3dPanel.style.display = 'block';
     voxelModelViewer.style.display = 'block';
     btnResetView.style.display = 'block';
     btnDownloadGlb.style.display = 'block';
