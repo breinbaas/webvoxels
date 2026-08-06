@@ -76,6 +76,9 @@ interface GenerateOptions {
   sill: number;
   nugget: number;
   knn: number;
+  useDistances: boolean;
+  distanceLeft: number;
+  distanceRight: number;
 }
 
 const GENERATE_OPTIONS_STORAGE_KEY = 'webvoxel-generate-options';
@@ -87,7 +90,10 @@ const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
   kRange: 200,
   sill: 1.0,
   nugget: 0.1,
-  knn: 10
+  knn: 10,
+  useDistances: false,
+  distanceLeft: 20,
+  distanceRight: 30
 };
 
 function loadGenerateOptions(): GenerateOptions {
@@ -273,9 +279,18 @@ const generateOptionKRange = document.getElementById('generate-option-k-range') 
 const generateOptionSill = document.getElementById('generate-option-sill') as HTMLInputElement;
 const generateOptionNugget = document.getElementById('generate-option-nugget') as HTMLInputElement;
 const generateOptionKnn = document.getElementById('generate-option-knn') as HTMLInputElement;
+const generatePolylineOptions = document.getElementById('generate-polyline-options') as HTMLDivElement;
+const generateOptionUseDistances = document.getElementById('generate-option-use-distances') as HTMLInputElement;
+const generateDistanceFields = document.getElementById('generate-distance-fields') as HTMLDivElement;
+const generateOptionDistanceLeft = document.getElementById('generate-option-distance-left') as HTMLInputElement;
+const generateOptionDistanceRight = document.getElementById('generate-option-distance-right') as HTMLInputElement;
 
 function updateKrigingOptionsVisibility() {
   generateKrigingOptions.style.display = generateOptionDeterministic.checked ? 'none' : '';
+}
+
+function updateDistanceOptionsVisibility() {
+  generateDistanceFields.style.display = generateOptionUseDistances.checked ? '' : 'none';
 }
 
 // ==========================================
@@ -2906,7 +2921,7 @@ async function generateVoxelModel(options: GenerateOptions) {
         ...(riskMode ? { distance_filter: [20, 50] } : {})
       };
 
-      //console.log('Sending 3D GLB export request payload:', payload);
+      console.log('Sending 3D GLB export request payload:', payload);
 
       // 7. API Request
       response = await fetch(`${API_URL}/api/voxels/export/glb/3d`, {
@@ -2938,13 +2953,17 @@ async function generateVoxelModel(options: GenerateOptions) {
       }
 
       // The profile follows the actual polyline through RD space, so it has a real footprint.
+      // When distance-filtering is on, the /3d endpoint is used instead (see below), which -
+      // like the rectangle case - centers and Y-up-swaps its vertices, so the bounds must be
+      // flagged non-raw and padded to approximate the buffered footprint the backend generates.
       const lineXs = rdPoints.map(p => p.x);
       const lineYs = rdPoints.map(p => p.y);
+      const boundsPad = options.useDistances ? Math.max(options.distanceLeft, options.distanceRight) : 0;
       lastGeoBounds = {
-        xMin: Math.min(...lineXs), xMax: Math.max(...lineXs),
-        yMin: Math.min(...lineYs), yMax: Math.max(...lineYs),
+        xMin: Math.min(...lineXs) - boundsPad, xMax: Math.max(...lineXs) + boundsPad,
+        yMin: Math.min(...lineYs) - boundsPad, yMax: Math.max(...lineYs) + boundsPad,
         zMin: minZ, zMax: maxZ,
-        raw: true
+        raw: !options.useDistances
       };
 
       // Project each CPT onto the reference line (original, to match coordinates)
@@ -2970,45 +2989,82 @@ async function generateVoxelModel(options: GenerateOptions) {
 
       //console.log('Reference line:', rdPoints);
 
-      // Construct the 2D API payload
-      const payload = {
-        soil_profiles: soilProfilesPayload,
-        dx: 1.0,
-        dz: 0.25,
-        referenceline: rdPoints.map(p => p.alt !== undefined ? [p.x, p.y, p.alt] : [p.x, p.y]),
-        soil_colors: filteredSoilColors,
-        deterministic: options.deterministic,
-        remove_preexcavated: options.removePreexcavated,
-        ...(options.deterministic ? {} : {
-          k_range: options.kRange,
-          sill: options.sill,
-          nugget: options.nugget,
-          knn_num_neighbors: options.knn
-        }),
-        ...(riskMode ? { distance_filter: [20, 50] } : {})
-      };
+      if (options.useDistances) {
+        // Construct a 3D-style payload (like the rectangle/3D case) but without an
+        // x/y bounding box - the reference line + left/right distance define the footprint.
+        const payload = {
+          soil_profiles: soilProfilesPayload,
+          dx: 5,
+          dy: 5,
+          z_min: minZ,
+          z_max: maxZ,
+          dz: 1.0,
+          referenceline: rdPoints.map(p => p.alt !== undefined ? [p.x, p.y, p.alt] : [p.x, p.y]),
+          soil_colors: filteredSoilColors,
+          deterministic: options.deterministic,
+          remove_preexcavated: options.removePreexcavated,
+          max_referenceline_distance: [options.distanceLeft, options.distanceRight],
+          ...(options.deterministic ? {} : {
+            k_range: options.kRange,
+            sill: options.sill,
+            nugget: options.nugget,
+            knn_num_neighbors: options.knn
+          }),
+          ...(riskMode ? { distance_filter: [20, 50] } : {})
+        };
 
-      console.log('Sending 2D GLB export request payload:', payload);
+        console.log('Sending 2D (distance-filtered 3D) GLB export request payload:', payload);
 
-      // // write to debug file
-      // const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      // const url = URL.createObjectURL(blob);
-      // const a = document.createElement('a');
-      // a.href = url;
-      // a.download = 'debug_2d.json';
-      // a.click();
+        // API Request
+        response = await fetch(`${API_URL}/api/voxels/export/glb/3d`, {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'X-API-Key': API_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+      } else {
+        // Construct the 2D API payload
+        const payload = {
+          soil_profiles: soilProfilesPayload,
+          dx: 1.0,
+          dz: 0.25,
+          referenceline: rdPoints.map(p => p.alt !== undefined ? [p.x, p.y, p.alt] : [p.x, p.y]),
+          soil_colors: filteredSoilColors,
+          deterministic: options.deterministic,
+          remove_preexcavated: options.removePreexcavated,
+          ...(options.deterministic ? {} : {
+            k_range: options.kRange,
+            sill: options.sill,
+            nugget: options.nugget,
+            knn_num_neighbors: options.knn
+          }),
+          ...(riskMode ? { distance_filter: [20, 50] } : {})
+        };
 
+        console.log('Sending 2D GLB export request payload:', payload);
 
-      // API Request
-      response = await fetch(`${API_URL}/api/voxels/export/glb/2d`, {
-        method: 'POST',
-        headers: {
-          'accept': 'application/json',
-          'X-API-Key': API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
+        // // write to debug file
+        // const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        // const url = URL.createObjectURL(blob);
+        // const a = document.createElement('a');
+        // a.href = url;
+        // a.download = 'debug_2d.json';
+        // a.click();
+
+        // API Request
+        response = await fetch(`${API_URL}/api/voxels/export/glb/2d`, {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'X-API-Key': API_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+      }
     }
 
     if (!response.ok) {
@@ -3038,10 +3094,12 @@ async function generateVoxelModel(options: GenerateOptions) {
     currentVoxelVolumes = volumesData;
     isRiskModelActive = riskMode;
 
-    // The 3D/rectangle endpoint also returns an "h5file" part - the raw voxel data needed as
-    // input to the cross-section endpoint. The 2D/polyline endpoint doesn't return one.
+    // The /3d endpoint also returns an "h5file" part - the raw voxel data needed as input to the
+    // cross-section endpoint. That's hit both by the rectangle case and by the distance-filtered
+    // polyline case (which reuses the /3d endpoint); the plain /2d polyline endpoint returns none.
+    const usedGlb3dEndpoint = isRectangle || (isPolyline && options.useDistances);
     const h5Part = responseForm.get('h5file');
-    currentVoxel3dH5Blob = (isRectangle && h5Part instanceof Blob) ? h5Part : null;
+    currentVoxel3dH5Blob = (usedGlb3dEndpoint && h5Part instanceof Blob) ? h5Part : null;
     btnDrawCrosssection.style.display = currentVoxel3dH5Blob ? 'block' : 'none';
     btnDrawCrosssectionMap.style.display = currentVoxel3dH5Blob ? 'block' : 'none';
     crosssectionToolbarDivider.style.display = currentVoxel3dH5Blob ? 'block' : 'none';
@@ -3054,8 +3112,11 @@ async function generateVoxelModel(options: GenerateOptions) {
     const modelUrl = URL.createObjectURL(filePart);
     currentVoxelModelUrl = modelUrl;
 
-    // Load into the 3D viewer (drapes the aerial photo automatically for rectangle/3D models)
-    loadVoxelModel(modelUrl, lastGeoBounds, !isRectangle);
+    // Load into the 3D viewer (drapes the aerial photo automatically for rectangle/3D models).
+    // Orientation follows the bounds' own raw flag, since that's exactly what tracks whether the
+    // backend centered/Y-up-swapped the GLB (rectangle, and now distance-filtered polyline calls)
+    // or returned raw absolute coordinates (plain polyline calls).
+    loadVoxelModel(modelUrl, lastGeoBounds, lastGeoBounds ? lastGeoBounds.raw : !isRectangle);
 
     // Open split view
     appContainer.classList.add('split-active');
@@ -3097,12 +3158,18 @@ btnGenerateVoxel.addEventListener('click', () => {
   generateOptionSill.value = String(options.sill);
   generateOptionNugget.value = String(options.nugget);
   generateOptionKnn.value = String(options.knn);
+  generateOptionUseDistances.checked = options.useDistances;
+  generateOptionDistanceLeft.value = String(options.distanceLeft);
+  generateOptionDistanceRight.value = String(options.distanceRight);
   updateKrigingOptionsVisibility();
+  updateDistanceOptionsVisibility();
+  generatePolylineOptions.style.display = isPolyline ? '' : 'none';
 
   generateOptionsOverlay.classList.add('active');
 });
 
 generateOptionDeterministic.addEventListener('change', updateKrigingOptionsVisibility);
+generateOptionUseDistances.addEventListener('change', updateDistanceOptionsVisibility);
 
 btnConfirmGenerateOptions.addEventListener('click', () => {
   const options: GenerateOptions = {
@@ -3112,7 +3179,10 @@ btnConfirmGenerateOptions.addEventListener('click', () => {
     kRange: parseFloat(generateOptionKRange.value) || DEFAULT_GENERATE_OPTIONS.kRange,
     sill: parseFloat(generateOptionSill.value) || DEFAULT_GENERATE_OPTIONS.sill,
     nugget: parseFloat(generateOptionNugget.value) || DEFAULT_GENERATE_OPTIONS.nugget,
-    knn: parseFloat(generateOptionKnn.value) || DEFAULT_GENERATE_OPTIONS.knn
+    knn: parseFloat(generateOptionKnn.value) || DEFAULT_GENERATE_OPTIONS.knn,
+    useDistances: generateOptionUseDistances.checked,
+    distanceLeft: parseFloat(generateOptionDistanceLeft.value) || DEFAULT_GENERATE_OPTIONS.distanceLeft,
+    distanceRight: parseFloat(generateOptionDistanceRight.value) || DEFAULT_GENERATE_OPTIONS.distanceRight
   };
   saveGenerateOptions(options);
   generateOptionsOverlay.classList.remove('active');

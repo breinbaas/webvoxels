@@ -681,6 +681,62 @@
               <input type="checkbox" id="generate-option-remove-preexcavated" class="setting-checkbox" checked>
             </div>
           </div>
+
+          <div id="generate-polyline-options">
+            <div class="setting-item">
+              <div class="option-info">
+                <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="4" y1="21" x2="4" y2="14" />
+                  <line x1="9" y1="21" x2="9" y2="10" />
+                  <line x1="14" y1="21" x2="14" y2="18" />
+                  <line x1="19" y1="21" x2="19" y2="6" />
+                </svg>
+                <div class="option-text">
+                  <span class="option-title">Use distances as horizontal</span>
+                  <span class="option-desc">Limit soil profiles to a left/right distance from the reference line</span>
+                </div>
+              </div>
+              <div class="setting-checkbox-wrapper">
+                <input type="checkbox" id="generate-option-use-distances" class="setting-checkbox">
+              </div>
+            </div>
+
+            <div id="generate-distance-fields">
+              <div class="setting-item">
+                <div class="option-info">
+                  <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="16" />
+                    <line x1="8" y1="12" x2="16" y2="12" />
+                  </svg>
+                  <div class="option-text">
+                    <span class="option-title">Left distance</span>
+                    <span class="option-desc">Max distance to the left of the reference line (m)</span>
+                  </div>
+                </div>
+                <div class="setting-input-wrapper">
+                  <input type="number" id="generate-option-distance-left" class="setting-input" value="20" min="0" step="0.1">
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="option-info">
+                  <svg class="option-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="16" />
+                    <line x1="8" y1="12" x2="16" y2="12" />
+                  </svg>
+                  <div class="option-text">
+                    <span class="option-title">Right distance</span>
+                    <span class="option-desc">Max distance to the right of the reference line (m)</span>
+                  </div>
+                </div>
+                <div class="setting-input-wrapper">
+                  <input type="number" id="generate-option-distance-right" class="setting-input" value="30" min="0" step="0.1">
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="generate-options-actions">
